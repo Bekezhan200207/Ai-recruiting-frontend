@@ -49,33 +49,55 @@ const AuthPage = () => {
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    let url = `${API_BASE}/auth/login`;
-    if (!isLogin) {
-      url = role === 'recruiter' ? `${API_BASE}/auth/recruiter/signup` : `${API_BASE}/auth/candidate/signup`;
+  e.preventDefault();
+  
+  let url = `${API_BASE}/auth/login`;
+  if (!isLogin) {
+    url = role === 'recruiter' ? `${API_BASE}/auth/recruiter/signup` : `${API_BASE}/auth/candidate/signup`;
+  }
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(form)
+    });
+
+    // 1. Get the raw text first to avoid crashing on empty/invalid JSON
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.error("Backend sent non-JSON response:", text);
+      return alert("Backend Error: Sent text instead of JSON. Message: " + text);
     }
 
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
-      });
-      const data = await res.json();
-      if (res.ok) {
-        // Normalizing IDs because Swagger shows recruiter_id or candidate_id
-        const userObj = { 
-          ...data, 
-          id: data.recruiter_id || data.candidate_id || data.id,
-          role: role || (data.recruiter_id ? 'recruiter' : 'candidate')
-        };
-        login(userObj);
-        navigate('/');
-      } else {
-        alert(data.error || "Authentication failed");
+    if (res.ok) {
+      // 2. Normalize the ID (Backend returns different keys: id, candidate_id, recruiter_id)
+      const userId = data.recruiter_id || data.candidate_id || data.id || data.user_id;
+      
+      if (!userId) {
+        console.error("Payload missing ID:", data);
+        return alert("Login successful, but server didn't send a User ID.");
       }
-    } catch (err) { alert("Server error"); }
-  };
+
+      const userObj = { 
+        ...data, 
+        id: userId,
+        role: role || (data.recruiter_id ? 'recruiter' : 'candidate')
+      };
+      
+      login(userObj);
+      navigate('/');
+    } else {
+      alert(data.error || "Authentication failed. Status: " + res.status);
+    }
+  } catch (err) {
+    console.error("Frontend Crash Detail:", err);
+    alert("Frontend logic error: " + err.message);
+  }
+};
 
   return (
     <div className="max-w-md mx-auto mt-20 p-8 bg-white rounded-xl shadow-2xl border border-gray-100">
