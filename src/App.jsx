@@ -254,18 +254,27 @@ export default function App() {
   };
 
   const handleViewAppStatus = async (app) => {
+    // Проверяем, как именно бэкенд прислал ID (id или ID)
+    const appId = app.id || app.ID;
+
+    console.log("Клик по заявке. Объект:", app); // Посмотрите в консоль браузера (F12), что там внутри
+
+    if (!appId) {
+      alert("Ошибка: Бэкенд не прислал ID заявки. Проверьте консоль.");
+      return;
+    }
+
     setSelectedApp(app);
-    setAiData(null); // 1. Обязательно очищаем старый анализ перед загрузкой
+    setAiData(null);
     setLoading(true);
     setView('candidate_app_detail');
-    
+
     try {
-      // 2. Делаем запрос к вашему руту GET /applications/:id/ai-data
-      const data = await apiRequest(`/applications/${app.id}/ai-data`);
-      console.log("AI Data received:", data); // Для проверки в консоли
+      // Используем найденный appId
+      const data = await apiRequest(`/applications/${appId}/ai-data`);
       setAiData(data);
     } catch (err) {
-      console.error("Ошибка при получении вердикта:", err);
+      console.error("Ошибка при получении AI Data:", err);
       setAiData(null);
     } finally {
       setLoading(false);
@@ -667,77 +676,77 @@ export default function App() {
         {/* CANDIDATE: ЭКРАН ОЦЕНКИ ИИ */}
         {view === 'candidate_app_detail' && selectedApp && (
           <div className="max-w-4xl mx-auto animate-in fade-in zoom-in duration-300">
-             <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center gap-4">
-                   <button onClick={() => setView('my_apps')} className="p-2 hover:bg-white rounded-full transition"><ArrowLeft/></button>
-                   <h2 className="text-3xl font-black text-slate-900">Ваш отклик</h2>
-                </div>
-                <StatusBadge status={selectedApp.status} />
-             </div>
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-4">
+                <button onClick={() => setView('my_apps')} className="p-2 hover:bg-white rounded-full transition"><ArrowLeft /></button>
+                <h2 className="text-3xl font-black text-slate-900">Ваш отклик</h2>
+              </div>
+              <StatusBadge status={selectedApp.status} />
+            </div>
 
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                {/* Левая панель: Оценка */}
-                <div className="md:col-span-1 space-y-6">
-                   <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center">
-                      <p className="text-sm font-black text-slate-400 uppercase mb-4">AI Score</p>
-                      <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-blue-50 text-blue-600 text-3xl font-black mb-2">
-                         {selectedApp.ai_score || "0"}%
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {/* Левая панель: Оценка */}
+              <div className="md:col-span-1 space-y-6">
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center">
+                  <p className="text-sm font-black text-slate-400 uppercase mb-4">AI Score</p>
+                  <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-blue-50 text-blue-600 text-3xl font-black mb-2">
+                    {selectedApp.ai_score || "0"}%
+                  </div>
+                  <p className="text-xs text-slate-400">На основе требований вакансии</p>
+                </div>
+
+                <div className="bg-indigo-600 p-6 rounded-3xl text-white shadow-lg shadow-indigo-100">
+                  <h4 className="flex items-center gap-2 font-bold mb-3"><Sparkles size={18} /> Совет ИИ</h4>
+                  <p className="text-indigo-100 text-sm leading-relaxed">
+                    Ваше резюме было успешно проанализировано. Рекрутер видит этот же отчет и примет решение о приглашении на интервью.
+                  </p>
+                </div>
+              </div>
+
+              {/* Основная панель: Вердикт */}
+              <div className="md:col-span-2 space-y-6">
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                  <h3 className="font-black text-slate-900 mb-6 flex items-center gap-2">
+                    <FileText size={20} className="text-blue-600" /> Подробный анализ
+                  </h3>
+
+                  {loading ? (
+                    // Показываем только во время выполнения запроса
+                    <div className="py-20 text-center">
+                      <Loader2 className="animate-spin mx-auto text-blue-600 mb-4" size={32} />
+                      <p className="text-slate-400 font-bold">Загружаем вердикт из базы...</p>
+                    </div>
+                  ) : aiData && aiData.ai_verdict ? (
+                    // Показываем данные, если они пришли
+                    <div className="space-y-6">
+                      <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 text-slate-700 leading-relaxed font-medium">
+                        {aiData.ai_verdict}
                       </div>
-                      <p className="text-xs text-slate-400">На основе требований вакансии</p>
-                   </div>
-                   
-                   <div className="bg-indigo-600 p-6 rounded-3xl text-white shadow-lg shadow-indigo-100">
-                      <h4 className="flex items-center gap-2 font-bold mb-3"><Sparkles size={18}/> Совет ИИ</h4>
-                      <p className="text-indigo-100 text-sm leading-relaxed">
-                         Ваше резюме было успешно проанализировано. Рекрутер видит этот же отчет и примет решение о приглашении на интервью.
-                      </p>
-                   </div>
-                </div>
 
-                {/* Основная панель: Вердикт */}
-                <div className="md:col-span-2 space-y-6">
-                   <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-                      <h3 className="font-black text-slate-900 mb-6 flex items-center gap-2">
-                         <FileText size={20} className="text-blue-600"/> Подробный анализ
-                      </h3>
-                      
-                      {loading ? (
-                         // Показываем только во время выполнения запроса
-                         <div className="py-20 text-center">
-                            <Loader2 className="animate-spin mx-auto text-blue-600 mb-4" size={32}/>
-                            <p className="text-slate-400 font-bold">Загружаем вердикт из базы...</p>
-                         </div>
-                      ) : aiData && aiData.ai_verdict ? (
-                         // Показываем данные, если они пришли
-                         <div className="space-y-6">
-                            <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 text-slate-700 leading-relaxed font-medium">
-                               {aiData.ai_verdict}
-                            </div>
-                            
-                            {aiData.skills_detected && (
-                               <div>
-                                  <p className="text-xs font-black text-slate-400 uppercase mb-3">Найденные навыки</p>
-                                  <div className="flex flex-wrap gap-2">
-                                     {aiData.skills_detected.split(',').map((s, i) => (
-                                        <span key={i} className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-xs font-bold border border-blue-100">
-                                           {s.trim()}
-                                        </span>
-                                     ))}
-                                  </div>
-                               </div>
-                            )}
-                         </div>
-                      ) : (
-                         // Показываем это, ТОЛЬКО если данных реально нет в базе
-                         <div className="py-20 text-center">
-                            <XCircle className="mx-auto text-slate-200 mb-4" size={48}/>
-                            <p className="text-slate-400 font-bold">Анализ еще не готов или произошла ошибка.</p>
-                            <p className="text-slate-300 text-sm mt-2">Попробуйте обновить страницу через минуту.</p>
-                         </div>
+                      {aiData.skills_detected && (
+                        <div>
+                          <p className="text-xs font-black text-slate-400 uppercase mb-3">Найденные навыки</p>
+                          <div className="flex flex-wrap gap-2">
+                            {aiData.skills_detected.split(',').map((s, i) => (
+                              <span key={i} className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-xs font-bold border border-blue-100">
+                                {s.trim()}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       )}
-                   </div>
+                    </div>
+                  ) : (
+                    // Показываем это, ТОЛЬКО если данных реально нет в базе
+                    <div className="py-20 text-center">
+                      <XCircle className="mx-auto text-slate-200 mb-4" size={48} />
+                      <p className="text-slate-400 font-bold">Анализ еще не готов или произошла ошибка.</p>
+                      <p className="text-slate-300 text-sm mt-2">Попробуйте обновить страницу через минуту.</p>
+                    </div>
+                  )}
                 </div>
-             </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -755,9 +764,9 @@ export default function App() {
                 <p className="text-center text-slate-400 py-20 font-bold">Вы еще не подавали резюме</p>
               ) : (
                 applications.map(app => (
-                  <div 
-                    key={app.id} 
-                    onClick={() => handleViewAppStatus(app)} // Добавили клик
+                  <div
+                    key={app.id || app.ID || Math.random()} // Используем гибкий поиск ID
+                    onClick={() => handleViewAppStatus(app)}
                     className="bg-white p-6 rounded-3xl border border-slate-100 flex justify-between items-center shadow-sm hover:shadow-md cursor-pointer transition group"
                   >
                     <div>
@@ -766,8 +775,8 @@ export default function App() {
                         ВАКАНСИЯ: {app.vacancy_id?.slice(0, 8) || "ID"}
                       </p>
                       <div className="flex items-center gap-3">
-                         <p className="text-slate-500 text-sm flex items-center gap-1"><Clock size={12} /> {app.applied_at ? new Date(app.applied_at).toLocaleDateString() : 'Дата'}</p>
-                         {app.ai_score > 0 && <ScoreBadge score={app.ai_score} />}
+                        <p className="text-slate-500 text-sm flex items-center gap-1"><Clock size={12} /> {app.applied_at ? new Date(app.applied_at).toLocaleDateString() : 'Дата'}</p>
+                        {app.ai_score > 0 && <ScoreBadge score={app.ai_score} />}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
