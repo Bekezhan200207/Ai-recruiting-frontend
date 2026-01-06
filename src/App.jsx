@@ -255,14 +255,17 @@ export default function App() {
 
   const handleViewAppStatus = async (app) => {
     setSelectedApp(app);
+    setAiData(null); // 1. Обязательно очищаем старый анализ перед загрузкой
     setLoading(true);
-    setView('candidate_app_detail'); // Новый экран
+    setView('candidate_app_detail');
+    
     try {
-      // Подгружаем данные ИИ (вердикт, скоринг)
+      // 2. Делаем запрос к вашему руту GET /applications/:id/ai-data
       const data = await apiRequest(`/applications/${app.id}/ai-data`);
+      console.log("AI Data received:", data); // Для проверки в консоли
       setAiData(data);
     } catch (err) {
-      console.error("Данные ИИ еще не готовы:", err);
+      console.error("Ошибка при получении вердикта:", err);
       setAiData(null);
     } finally {
       setLoading(false);
