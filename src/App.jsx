@@ -254,13 +254,15 @@ export default function App() {
   };
 
   const handleViewAppStatus = async (app) => {
-    // Проверяем, как именно бэкенд прислал ID (id или ID)
-    const appId = app.id || app.ID;
+    // ВЫВОДИМ В КОНСОЛЬ, ЧТОБЫ УВИДЕТЬ СТРУКТУРУ
+    console.log("Данные заявки от бэкенда:", app);
 
-    console.log("Клик по заявке. Объект:", app); // Посмотрите в консоль браузера (F12), что там внутри
+    // Пытаемся найти ID в любом регистре
+    const appId = app.id || app.ID || app.Id;
 
     if (!appId) {
-      alert("Ошибка: Бэкенд не прислал ID заявки. Проверьте консоль.");
+      console.error("ID не найден в объекте. Доступные поля:", Object.keys(app));
+      alert(`Ошибка: Бэкенд прислал объект без ID. Поля: ${Object.keys(app).join(", ")}`);
       return;
     }
 
@@ -268,13 +270,12 @@ export default function App() {
     setAiData(null);
     setLoading(true);
     setView('candidate_app_detail');
-
+    
     try {
-      // Используем найденный appId
       const data = await apiRequest(`/applications/${appId}/ai-data`);
       setAiData(data);
     } catch (err) {
-      console.error("Ошибка при получении AI Data:", err);
+      console.error(err);
       setAiData(null);
     } finally {
       setLoading(false);
