@@ -76,6 +76,7 @@ export default function App() {
   const [formData, setFormData] = useState({});
   const [authMode, setAuthMode] = useState('login');
   const [authRole, setAuthRole] = useState('recruiter');
+  const [generatedPreview, setGeneratedPreview] = useState(null); // Для показа текста сообщения
 
   // --- AUTH ---
   const handleAuth = async (e) => {
@@ -87,13 +88,13 @@ export default function App() {
 
       if (authMode === 'login') {
         // РАЗДЕЛЯЕМ ЛОГИН
-        endpoint = authRole === 'recruiter' 
-          ? '/auth/recruiter/login' 
+        endpoint = authRole === 'recruiter'
+          ? '/auth/recruiter/login'
           : '/auth/candidate/login';
       } else {
         // РЕГИСТРАЦИЯ (уже была разделена)
-        endpoint = authRole === 'recruiter' 
-          ? '/auth/recruiter/signup' 
+        endpoint = authRole === 'recruiter'
+          ? '/auth/recruiter/signup'
           : '/auth/candidate/signup';
       }
 
@@ -116,21 +117,45 @@ export default function App() {
       } else {
         loadActiveVacancies();
       }
-    } catch (err) { 
-      setError(err.message); 
-    } finally { 
-      setLoading(false); 
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
   // --- RECRUITER ACTIONS ---
+  // Загрузка ВСЕХ вакансий (и активных, и архивных)
   const loadRecruiterDashboard = async (userId) => {
     setLoading(true);
     setView('dashboard');
     try {
-      const data = await apiRequest(`/vacancies/all?id=${userId || user.id}`);
-      setVacancies(data);
-    } catch (err) { console.error(err); } finally { setLoading(false); }
+      // Используем роут /vacancies/all и передаем ID рекрутера
+      const targetId = userId || user.id;
+      const data = await apiRequest(`/vacancies/all?id=${targetId}`);
+      console.log("Загруженные вакансии:", data);
+      setVacancies(Array.isArray(data) ? data : []); // Защита от null
+    } catch (err) {
+      console.error("Ошибка загрузки вакансий:", err);
+      setVacancies([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Переключение архивации
+  const toggleArchive = async (e, job) => {
+    e.stopPropagation(); // Чтобы не открылся детальный вид вакансии
+    const action = job.is_archived ? 'dearchive' : 'archive';
+    setLoading(true);
+    try {
+      await apiRequest(`/vacancies/${job.id}/${action}`, 'PATCH');
+      await loadRecruiterDashboard(); // Перезагружаем список
+    } catch (err) {
+      alert("Ошибка изменения статуса: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleJobClick = async (job) => {
@@ -141,14 +166,6 @@ export default function App() {
       setApplications(apps);
       setView('job_detail');
     } catch (err) { setError("Ошибка загрузки откликов"); } finally { setLoading(false); }
-  };
-
-  const toggleArchive = async (job) => {
-    const action = job.is_archived ? 'dearchive' : 'archive';
-    try {
-      await apiRequest(`/vacancies/${job.id}/${action}`, 'PATCH');
-      loadRecruiterDashboard();
-    } catch (err) { alert(err.message); }
   };
 
   const createVacancy = async (e) => {
@@ -206,14 +223,20 @@ export default function App() {
   };
 
   const generateTG = async (templateId) => {
+    setLoading(true);
     try {
       const res = await apiRequest(`/templates/${templateId}/generate`, 'POST', {
         candidate_name: selectedApp.candidate_name,
         telegram_username: aiData?.telegram_username || "username",
         vacancy_title: selectedJob.title
       });
-      window.open(res.telegram_link, '_blank');
-    } catch (err) { alert("Ошибка генерации ссылки"); }
+      // Показываем превью текста
+      setGeneratedPreview(res);
+    } catch (err) {
+      alert("Ошибка генерации: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // --- CANDIDATE ACTIONS ---
@@ -452,6 +475,60 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {vacancies.length === 0 ? (
+                <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-slate-200">
+                  <Briefcase className="mx-auto text-slate-200 mb-4" size={48} />
+                  <p className="text-slate-400 font-bold text-lg">У вас пока нет вакансий</p>
+                  <p className="text-slate-400 text-sm">Создайте первую, чтобы начать поиск кандидатов</p>
+                </div>
+              ) : (
+                vacancies.map(job => (
+                  <div
+                    key={job.id || job.ID}
+                    className={`bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl transition relative group ${job.is_archived ? 'opacity-70 grayscale-[0.5]' : ''}`}
+                  >
+                    <div className="flex justify-between items-start mb-4">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition ${job.is_archived ? 'bg-slate-100 text-slate-400' : 'bg-blue-50 text-blue-500'}`}>
+                        <Briefcase size={24} />
+                      </div>
+                      <StatusBadge status={job.is_archived ? 'Archived' : 'Active'} />
+                    </div>
+
+                    <h3
+                      onClick={() => handleJobClick(job)}
+                      className="text-xl font-bold text-slate-900 mb-2 group-hover:text-blue-600 transition cursor-pointer"
+                    >
+                      {job.title}
+                    </h3>
+
+                    <p className="text-sm text-slate-400 mb-6 flex items-center gap-1">
+                      <LinkIcon size={14} /> {job.short_link}
+                    </p>
+
+                    <div className="flex gap-2 border-t pt-4">
+                      <button
+                        onClick={() => handleJobClick(job)}
+                        className="flex-1 py-2 text-xs font-bold rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 transition"
+                      >
+                        Отклики
+                      </button>
+
+                      <button
+                        onClick={(e) => toggleArchive(e, job)}
+                        className={`flex-1 py-2 text-xs font-bold rounded-lg border transition ${job.is_archived
+                            ? 'border-green-200 text-green-600 hover:bg-green-50'
+                            : 'border-slate-100 text-slate-500 hover:bg-slate-50'
+                          }`}
+                      >
+                        {job.is_archived ? 'Разархивировать' : 'В архив'}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {vacancies.map(job => (
                 <div key={job.id} className={`bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl transition cursor-pointer group relative ${job.is_archived ? 'opacity-60' : ''}`}>
                   <div className="flex justify-between items-start mb-4">
@@ -609,11 +686,23 @@ export default function App() {
           </div>
         )}
 
-        {/* RECRUITER: CREATE TEMPLATE */}
         {view === 'create_template' && (
           <div className="max-w-2xl mx-auto bg-white p-10 rounded-3xl shadow-sm">
             <button onClick={() => setView('templates')} className="flex items-center gap-2 text-slate-400 mb-6 font-bold hover:text-slate-600"><ArrowLeft size={18} /> Назад</button>
-            <h2 className="text-3xl font-black mb-8">Создать шаблон</h2>
+            <h2 className="text-3xl font-black mb-4">Создать шаблон</h2>
+
+            {/* ИНСТРУКЦИЯ */}
+            <div className="bg-blue-50 p-4 rounded-2xl mb-6 border border-blue-100 flex gap-3 items-start">
+              <AlertCircle className="text-blue-600 shrink-0" size={20} />
+              <div className="text-sm text-blue-800 leading-relaxed">
+                <strong>Важно:</strong> Чтобы сообщение подставляло данные автоматически, используйте в тексте ключевые слова:
+                <div className="mt-2 flex gap-2">
+                  <code className="bg-white px-2 py-0.5 rounded border border-blue-200 font-bold">{"{ИМЯ}"}</code>
+                  <code className="bg-white px-2 py-0.5 rounded border border-blue-200 font-bold">{"{ВАКАНСИЯ}"}</code>
+                </div>
+              </div>
+            </div>
+
             <form onSubmit={saveTemplate} className="space-y-6">
               <div>
                 <label className="block text-sm font-bold mb-2">Название шаблона</label>
@@ -621,7 +710,7 @@ export default function App() {
               </div>
               <div>
                 <label className="block text-sm font-bold mb-2">Текст сообщения</label>
-                <textarea required placeholder="Используйте плейсхолдеры {name} и {job}..." className="w-full px-4 py-3 bg-slate-50 border rounded-xl h-40" onChange={e => setFormData({ ...formData, body_text: e.target.value })} />
+                <textarea required placeholder="Добрый день, {ИМЯ}! Мы рассмотрели ваш отклик на вакансию {ВАКАНСИЯ}..." className="w-full px-4 py-3 bg-slate-50 border rounded-xl h-40" onChange={e => setFormData({ ...formData, body_text: e.target.value })} />
               </div>
               <button className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold">Сохранить</button>
             </form>
@@ -810,6 +899,35 @@ export default function App() {
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        )}
+
+        {/* МОДАЛКА ПРЕДПРОСМОТРА СООБЩЕНИЯ */}
+        {generatedPreview && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl animate-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-black">Превью сообщения</h3>
+                <button onClick={() => setGeneratedPreview(null)} className="text-slate-400 hover:text-slate-600"><XCircle /></button>
+              </div>
+
+              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 mb-6 font-medium text-slate-700 leading-relaxed whitespace-pre-wrap">
+                {generatedPreview.generated_text}
+              </div>
+
+              <div className="flex gap-3">
+                <button onClick={() => setGeneratedPreview(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition">Закрыть</button>
+                <a
+                  href={generatedPreview.telegram_link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-1 py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition flex items-center justify-center gap-2"
+                >
+                  <Send size={18} /> Отправить в TG
+                </a>
+              </div>
+              <p className="text-center text-xs text-slate-400 mt-4">Нажатие на кнопку откроет чат с кандидатом и подставит этот текст</p>
             </div>
           </div>
         )}
