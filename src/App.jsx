@@ -212,21 +212,36 @@ export default function App() {
 
   // Переход к форме подачи резюме
   const handleSelectJobForApply = (job) => {
+    console.log("Selected Job:", job); // Для отладки
     setSelectedJob(job);
-    setView('upload');
+    setView('upload'); // Устанавливаем именно этот view
+    setError(null);
   };
 
   const uploadResume = async (file) => {
+    if (!file) return;
+
     setLoading(true);
-    const fd = new FormData();
-    fd.append('candidate_id', user.id);
-    fd.append('vacancy_id', selectedJob.id);
-    fd.append('resume', file);
+    setError(null);
+
+    // Создаем FormData (обязательно для передачи файлов)
+    const data = new FormData();
+    data.append('candidate_id', user.id);
+    data.append('vacancy_id', selectedJob.id);
+    data.append('resume', file);
+
     try {
-      await apiRequest('/applications', 'POST', fd, true);
-      alert("Резюме отправлено! ИИ начал анализ.");
-      fetchMyApps();
-    } catch (err) { alert(err.message); } finally { setLoading(false); }
+      // Отправляем на ваш роут /applications
+      await apiRequest('/applications', 'POST', data, true);
+
+      alert("Резюме успешно отправлено! ИИ приступил к анализу.");
+      fetchMyApps(); // Перенаправляем пользователя в историю откликов
+    } catch (err) {
+      console.error("Upload error:", err);
+      setError("Ошибка при загрузке: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fetchMyApps = async () => {
@@ -317,6 +332,64 @@ export default function App() {
             </button>
           </div>
         )}
+
+
+        {view === 'upload' && selectedJob && (
+          <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Детали вакансии */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 mb-6">
+              <div className="flex items-center gap-2 text-blue-600 font-bold text-xs uppercase tracking-widest mb-3">
+                <CheckCircle2 size={14} /> Вы выбрали позицию
+              </div>
+              <h1 className="text-3xl font-black text-slate-900 mb-4">{selectedJob.title}</h1>
+
+              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                <p className="text-xs font-black text-slate-400 uppercase mb-2">Требования вакансии:</p>
+                <p className="text-slate-600 leading-relaxed">
+                  {selectedJob.ai_filters || "Специальные требования не указаны, но ИИ оценит ваш опыт в целом."}
+                </p>
+              </div>
+            </div>
+
+            {/* Зона загрузки PDF */}
+            <div className="bg-white p-10 rounded-3xl shadow-xl border-2 border-dashed border-blue-100 flex flex-col items-center text-center relative group hover:border-blue-400 transition-all">
+              {loading ? (
+                <div className="py-10">
+                  <Loader2 className="animate-spin text-blue-600 mb-4 mx-auto" size={48} />
+                  <h3 className="text-xl font-bold text-slate-900">ИИ анализирует файл...</h3>
+                  <p className="text-slate-500 mt-2">Это может занять до 30 секунд. Пожалуйста, не закрывайте страницу.</p>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                    onChange={(e) => uploadResume(e.target.files[0])}
+                  />
+                  <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                    <Upload size={32} />
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-900 mb-2">Загрузите ваше резюме</h3>
+                  <p className="text-slate-500 mb-6">Принимаются только файлы в формате <span className="font-bold text-blue-600">PDF</span></p>
+
+                  <div className="flex items-center gap-4 text-xs font-bold text-slate-400 uppercase">
+                    <span className="flex items-center gap-1"><FileText size={14} /> Текст распознается ИИ</span>
+                    <span className="flex items-center gap-1"><Sparkles size={14} /> Оценка за 30 сек</span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {error && (
+              <div className="mt-4 p-4 bg-red-50 text-red-600 rounded-2xl flex items-center gap-2 font-medium border border-red-100">
+                <AlertCircle size={20} /> {error}
+              </div>
+            )}
+          </div>
+        )}
+
+
         {/* RECRUITER: DASHBOARD */}
         {view === 'dashboard' && (
           <div className="max-w-6xl mx-auto">
@@ -577,7 +650,12 @@ export default function App() {
           <div className="max-w-2xl mx-auto pt-10">
             <div className="flex justify-between items-center mb-10">
               <h2 className="text-3xl font-black">Мои отклики</h2>
-              <button onClick={() => setView('search')} className="p-3 bg-white rounded-xl shadow-sm text-slate-400 hover:text-blue-600 transition"><Plus size={24} /></button>
+              <button
+                onClick={() => loadActiveVacancies()}
+                className="p-3 bg-white rounded-xl shadow-sm text-slate-400 hover:text-blue-600 transition"
+              >
+                <Plus size={24} />
+              </button>
             </div>
             <div className="space-y-4">
               {applications.length === 0 ? <p className="text-center text-slate-400 py-20 font-bold">Вы еще не подавали резюме</p> :
