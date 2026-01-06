@@ -126,18 +126,41 @@ export default function App() {
 
   // --- RECRUITER ACTIONS ---
   // Загрузка ВСЕХ вакансий (и активных, и архивных)
+  // Загрузка ВСЕХ вакансий рекрутера
   const loadRecruiterDashboard = async (userId) => {
+    const targetId = userId || user?.id;
+    if (!targetId) return;
+
     setLoading(true);
     setView('dashboard');
     try {
-      // Используем роут /vacancies/all и передаем ID рекрутера
-      const targetId = userId || user.id;
-      const data = await apiRequest(`/vacancies/all?id=${targetId}`);
-      console.log("Загруженные вакансии:", data);
-      setVacancies(Array.isArray(data) ? data : []); // Защита от null
+      // ИСПРАВЛЕНО: Согласно Swagger, id передается в ПУТИ: /vacancies/all/{id}
+      const data = await apiRequest(`/vacancies/all/${targetId}`);
+      console.log("Вакансии получены:", data);
+      setVacancies(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error("Ошибка загрузки вакансий:", err);
+      console.error("Ошибка вакансий:", err);
       setVacancies([]);
+      setError("Не удалось загрузить вакансии");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Загрузка шаблонов
+  const loadTemplates = async () => {
+    if (!user?.id) return;
+
+    setLoading(true);
+    setView('templates');
+    try {
+      // Согласно Swagger: /templates?recruiter_id={id}
+      const data = await apiRequest(`/templates?recruiter_id=${user.id}`);
+      console.log("Шаблоны получены:", data);
+      setTemplates(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Ошибка шаблонов:", err);
+      setTemplates([]);
     } finally {
       setLoading(false);
     }
@@ -194,16 +217,6 @@ export default function App() {
       await apiRequest(`/applications/${selectedApp.id}/status`, 'PATCH', { status: newStatus });
       setSelectedApp({ ...selectedApp, status: newStatus });
     } catch (err) { alert(err.message); }
-  };
-
-  // --- TEMPLATES ---
-  const loadTemplates = async () => {
-    setLoading(true);
-    setView('templates');
-    try {
-      const data = await apiRequest(`/templates?recruiter_id=${user.id}`);
-      setTemplates(data);
-    } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
   const saveTemplate = async (e) => {
@@ -323,6 +336,17 @@ export default function App() {
       setLoading(false);
     }
   };
+
+
+   useEffect(() => {
+    if (user?.role === 'recruiter') {
+      if (view === 'dashboard') loadRecruiterDashboard();
+      if (view === 'templates') loadTemplates();
+    }
+    if (user?.role === 'candidate' && view === 'active_vacancies') {
+      loadActiveVacancies();
+    }
+  }, [view, user?.id]);
 
   // --- RENDERS ---
 
@@ -474,75 +498,50 @@ export default function App() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {vacancies.length === 0 ? (
-                <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-slate-200">
-                  <Briefcase className="mx-auto text-slate-200 mb-4" size={48} />
-                  <p className="text-slate-400 font-bold text-lg">У вас пока нет вакансий</p>
-                  <p className="text-slate-400 text-sm">Создайте первую, чтобы начать поиск кандидатов</p>
-                </div>
-              ) : (
-                vacancies.map(job => (
-                  <div
-                    key={job.id || job.ID}
-                    className={`bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl transition relative group ${job.is_archived ? 'opacity-70 grayscale-[0.5]' : ''}`}
-                  >
-                    <div className="flex justify-between items-start mb-4">
-                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition ${job.is_archived ? 'bg-slate-100 text-slate-400' : 'bg-blue-50 text-blue-500'}`}>
-                        <Briefcase size={24} />
-                      </div>
-                      <StatusBadge status={job.is_archived ? 'Archived' : 'Active'} />
-                    </div>
-
-                    <h3
-                      onClick={() => handleJobClick(job)}
-                      className="text-xl font-bold text-slate-900 mb-2 group-hover:text-blue-600 transition cursor-pointer"
+            {loading ? (
+              <div className="flex justify-center py-20"><Loader2 className="animate-spin text-blue-600" size={40} /></div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {vacancies.length === 0 ? (
+                  <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-slate-200">
+                    <Briefcase className="mx-auto text-slate-200 mb-4" size={48} />
+                    <p className="text-slate-400 font-bold text-lg">У вас пока нет вакансий</p>
+                    <p className="text-slate-300 text-sm">Создайте первую вакансию, чтобы начать</p>
+                  </div>
+                ) : (
+                  vacancies.map(job => (
+                    <div 
+                      key={job.id || job.ID} 
+                      className={`bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl transition relative group ${(job.is_archived || job.IsArchived) ? 'opacity-70 grayscale-[0.5]' : ''}`}
                     >
-                      {job.title}
-                    </h3>
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="w-12 h-12 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center">
+                          <Briefcase size={24} />
+                        </div>
+                        <StatusBadge status={(job.is_archived || job.IsArchived) ? 'Archived' : 'Active'} />
+                      </div>
 
-                    <p className="text-sm text-slate-400 mb-6 flex items-center gap-1">
-                      <LinkIcon size={14} /> {job.short_link}
-                    </p>
+                      <h3 onClick={() => handleJobClick(job)} className="text-xl font-bold text-slate-900 mb-2 group-hover:text-blue-600 transition cursor-pointer">
+                        {job.title || job.Title}
+                      </h3>
+                      <p className="text-sm text-slate-400 mb-6 flex items-center gap-1">
+                        <LinkIcon size={14} /> {job.short_link || job.ShortLink}
+                      </p>
 
-                    <div className="flex gap-2 border-t pt-4">
-                      <button
-                        onClick={() => handleJobClick(job)}
-                        className="flex-1 py-2 text-xs font-bold rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 transition"
-                      >
-                        Отклики
-                      </button>
-
-                      <button
-                        onClick={(e) => toggleArchive(e, job)}
-                        className={`flex-1 py-2 text-xs font-bold rounded-lg border transition ${job.is_archived
-                            ? 'border-green-200 text-green-600 hover:bg-green-50'
-                            : 'border-slate-100 text-slate-500 hover:bg-slate-50'
-                          }`}
-                      >
-                        {job.is_archived ? 'Разархивировать' : 'В архив'}
-                      </button>
+                      <div className="flex gap-2 border-t pt-4">
+                        <button onClick={() => handleJobClick(job)} className="flex-1 py-2 text-xs font-bold rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 transition">Отклики</button>
+                        <button 
+                          onClick={(e) => toggleArchive(e, job)} 
+                          className="flex-1 py-2 text-xs font-bold rounded-lg border border-slate-100 text-slate-500 hover:bg-slate-50"
+                        >
+                          {(job.is_archived || job.IsArchived) ? 'Восстановить' : 'В архив'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {vacancies.map(job => (
-                <div key={job.id} className={`bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl transition cursor-pointer group relative ${job.is_archived ? 'opacity-60' : ''}`}>
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-500 transition"><Briefcase size={24} /></div>
-                    <StatusBadge status={job.is_archived ? 'Archived' : 'Active'} />
-                  </div>
-                  <h3 onClick={() => handleJobClick(job)} className="text-xl font-bold text-slate-900 mb-2 group-hover:text-blue-600 transition">{job.title}</h3>
-                  <p className="text-sm text-slate-400 mb-4 flex items-center gap-1"><LinkIcon size={14} /> {job.short_link}</p>
-                  <div className="flex gap-2 border-t pt-4">
-                    <button onClick={() => toggleArchive(job)} className="flex-1 py-2 text-xs font-bold rounded-lg border border-slate-100 hover:bg-slate-50">{job.is_archived ? 'Разархивировать' : 'В архив'}</button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -690,6 +689,20 @@ export default function App() {
           <div className="max-w-2xl mx-auto bg-white p-10 rounded-3xl shadow-sm">
             <button onClick={() => setView('templates')} className="flex items-center gap-2 text-slate-400 mb-6 font-bold hover:text-slate-600"><ArrowLeft size={18} /> Назад</button>
             <h2 className="text-3xl font-black mb-4">Создать шаблон</h2>
+            <h2 className="text-3xl font-black mb-8">Создать шаблон</h2>
+            
+            {/* ВСТАВЛЯЕМ ИНСТРУКЦИЮ СЮДА */}
+            <div className="bg-amber-50 p-4 rounded-2xl mb-6 border border-amber-100 flex gap-3">
+              <AlertCircle className="text-amber-600 shrink-0" size={20}/>
+              <div className="text-sm text-amber-800">
+                <strong>Важно:</strong> Для автоматической подстановки данных используйте в тексте ключевые слова:
+                <div className="mt-2 flex gap-2">
+                  <code className="bg-white px-2 py-0.5 rounded border border-amber-200 font-bold">{"{ИМЯ}"}</code>
+                  <code className="bg-white px-2 py-0.5 rounded border border-amber-200 font-bold">{"{ВАКАНСИЯ}"}</code>
+                </div>
+              </div>
+            </div>
+            {/* Дальше идет ваш тег <form> ... */}
 
             {/* ИНСТРУКЦИЯ */}
             <div className="bg-blue-50 p-4 rounded-2xl mb-6 border border-blue-100 flex gap-3 items-start">
