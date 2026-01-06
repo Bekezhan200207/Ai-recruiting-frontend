@@ -83,23 +83,44 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      let endpoint = authMode === 'login' ? '/auth/login' : (authRole === 'recruiter' ? '/auth/recruiter/signup' : '/auth/candidate/signup');
+      let endpoint = '';
+
+      if (authMode === 'login') {
+        // РАЗДЕЛЯЕМ ЛОГИН
+        endpoint = authRole === 'recruiter' 
+          ? '/auth/recruiter/login' 
+          : '/auth/candidate/login';
+      } else {
+        // РЕГИСТРАЦИЯ (уже была разделена)
+        endpoint = authRole === 'recruiter' 
+          ? '/auth/recruiter/signup' 
+          : '/auth/candidate/signup';
+      }
+
       const res = await apiRequest(endpoint, 'POST', formData);
 
+      // Сохраняем данные пользователя
       const userData = {
-        id: res.recruiter_id || res.candidate_id || res.id,
-        email: formData.email,
-        role: authMode === 'login' ? (res.recruiter_id ? 'recruiter' : 'candidate') : authRole
+        id: res.id,
+        email: res.email,
+        role: res.role, // Бэкенд теперь явно возвращает роль
+        company_name: res.company_name, // Для рекрутера
+        telegram_username: res.telegram_username // Для кандидата
       };
 
       setUser(userData);
+
+      // Перенаправление
       if (userData.role === 'recruiter') {
         loadRecruiterDashboard(userData.id);
       } else {
-        // Раньше было setView('search'), теперь сразу грузим вакансии
         loadActiveVacancies();
       }
-    } catch (err) { setError(err.message); } finally { setLoading(false); }
+    } catch (err) { 
+      setError(err.message); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   // --- RECRUITER ACTIONS ---
