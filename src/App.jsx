@@ -20,15 +20,26 @@ const apiRequest = async (endpoint, method = 'GET', body = null, isFormData = fa
     config.body = isFormData ? body : JSON.stringify(body);
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, config);
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, config);
+    
+    // Если ошибка (4xx, 5xx)
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || errorData.message || `Ошибка: ${response.status}`);
+    }
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || errorData.message || `Ошибка: ${response.status}`);
+    const contentType = response.headers.get("content-type");
+    if (contentType && contentType.includes("application/json")) {
+      return await response.json();
+    } else {
+      // Если сервер прислал просто текст (как "Vacancy archived")
+      return await response.text();
+    }
+  } catch (error) {
+    console.error("API Error:", error);
+    throw error;
   }
-
-  const text = await response.text();
-  return text ? JSON.parse(text) : {};
 };
 
 // --- UI COMPONENTS ---
@@ -142,13 +153,23 @@ export default function App() {
 
   const toggleArchive = async (e, job) => {
     e.stopPropagation();
-    const jobId = job.id || job.ID;
+    const jobId = job.id || job.ID; // Берем любой доступный ID
+    
+    if (!jobId) return alert("Ошибка: ID вакансии не найден");
+
     const action = (job.is_archived || job.IsArchived) ? 'dearchive' : 'archive';
     setLoading(true);
     try {
+      // Отправляем запрос на /vacancies/{id}/archive или /vacancies/{id}/dearchive
       await apiRequest(`/vacancies/${jobId}/${action}`, 'PATCH');
+      
+      // Перезагружаем список вакансий, чтобы увидеть изменения
       loadRecruiterDashboard();
-    } catch (err) { alert(err.message); } finally { setLoading(false); }
+    } catch (err) {
+      alert("Ошибка: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const createVacancy = async (e) => {
@@ -535,23 +556,70 @@ export default function App() {
           </div>
         )}
 
-        {/* CANDIDATE: APP DETAIL */}
+        {/* CANDIDATE: ЭКРАН ОЦЕНКИ ИИ */}
         {view === 'candidate_app_detail' && selectedApp && (
-          <div className="max-w-4xl mx-auto">
-            <div className="flex justify-between items-center mb-8">
-              <h2 className="text-3xl font-black">Результат анализа</h2>
+          <div className="max-w-4xl mx-auto animate-in fade-in zoom-in duration-300">
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-4">
+                <button onClick={() => setView('my_apps')} className="p-2 hover:bg-white rounded-full transition"><ArrowLeft /></button>
+                <h2 className="text-3xl font-black text-slate-900">Результат анализа</h2>
+              </div>
               <StatusBadge status={selectedApp.status} />
             </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              <div className="bg-white p-8 rounded-3xl shadow-sm text-center">
-                <p className="text-sm font-black text-slate-400 mb-4">AI Score</p>
-                <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center text-3xl font-black mx-auto text-blue-600">{selectedApp.ai_score || 0}%</div>
+              {/* Левая панель: Оценка и Совет */}
+              <div className="md:col-span-1 space-y-6">
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center">
+                  <p className="text-sm font-black text-slate-400 uppercase mb-4">AI Score</p>
+                  <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-blue-50 text-blue-600 text-3xl font-black mb-2">
+                    {selectedApp.ai_score || "0"}%
+                  </div>
+                  <p className="text-xs text-slate-400">На основе требований вакансии</p>
+                </div>
+
+                <div className="bg-indigo-600 p-6 rounded-3xl text-white shadow-lg shadow-indigo-100">
+                  <h4 className="flex items-center gap-2 font-bold mb-3"><Sparkles size={18} /> Совет ИИ</h4>
+                  <p className="text-indigo-100 text-sm leading-relaxed">
+                    Рекрутер уже получил этот отчет. Если ваш балл выше 70%, вероятность приглашения на интервью очень велика. Удачи!
+                  </p>
+                </div>
               </div>
-              <div className="md:col-span-2 bg-white p-8 rounded-3xl shadow-sm">
-                <h3 className="font-black mb-6">Подробный вердикт</h3>
-                {loading ? <Loader2 className="animate-spin text-blue-600" /> : (
-                  aiData ? <div className="p-6 bg-slate-50 rounded-2xl">{aiData.ai_verdict}</div> : <p>Данные загружаются...</p>
-                )}
+
+              {/* Основная панель: Вердикт и Навыки */}
+              <div className="md:col-span-2 space-y-6">
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                  <h3 className="font-black text-slate-900 mb-6 flex items-center gap-2">
+                    <FileText size={20} className="text-blue-600" /> Подробный вердикт
+                  </h3>
+
+                  {loading ? (
+                    <div className="py-20 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" /></div>
+                  ) : aiData ? (
+                    <div className="space-y-6">
+                      <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 text-slate-700 leading-relaxed font-medium">
+                        {aiData.ai_verdict}
+                      </div>
+
+                      {aiData.skills_detected && (
+                        <div>
+                          <p className="text-xs font-black text-slate-400 uppercase mb-3">Ваши ключевые навыки:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {aiData.skills_detected.split(',').map((s, i) => (
+                              <span key={i} className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-xs font-bold border border-blue-100">
+                                {s.trim()}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="py-20 text-center text-slate-400 font-bold">
+                       Данные анализа временно недоступны.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
