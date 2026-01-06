@@ -253,6 +253,22 @@ export default function App() {
     } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
+  const handleViewAppStatus = async (app) => {
+    setSelectedApp(app);
+    setLoading(true);
+    setView('candidate_app_detail'); // Новый экран
+    try {
+      // Подгружаем данные ИИ (вердикт, скоринг)
+      const data = await apiRequest(`/applications/${app.id}/ai-data`);
+      setAiData(data);
+    } catch (err) {
+      console.error("Данные ИИ еще не готовы:", err);
+      setAiData(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // --- RENDERS ---
 
   if (view === 'auth') {
@@ -645,30 +661,110 @@ export default function App() {
           </div>
         )}
 
+        {/* CANDIDATE: ЭКРАН ОЦЕНКИ ИИ */}
+        {view === 'candidate_app_detail' && selectedApp && (
+          <div className="max-w-4xl mx-auto animate-in fade-in zoom-in duration-300">
+             <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-4">
+                   <button onClick={() => setView('my_apps')} className="p-2 hover:bg-white rounded-full transition"><ArrowLeft/></button>
+                   <h2 className="text-3xl font-black text-slate-900">Ваш отклик</h2>
+                </div>
+                <StatusBadge status={selectedApp.status} />
+             </div>
+
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {/* Левая панель: Оценка */}
+                <div className="md:col-span-1 space-y-6">
+                   <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center">
+                      <p className="text-sm font-black text-slate-400 uppercase mb-4">AI Score</p>
+                      <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-blue-50 text-blue-600 text-3xl font-black mb-2">
+                         {selectedApp.ai_score || "..."}%
+                      </div>
+                      <p className="text-xs text-slate-400">На основе требований вакансии</p>
+                   </div>
+                   
+                   <div className="bg-indigo-600 p-6 rounded-3xl text-white shadow-lg shadow-indigo-100">
+                      <h4 className="flex items-center gap-2 font-bold mb-3"><Sparkles size={18}/> Совет ИИ</h4>
+                      <p className="text-indigo-100 text-sm leading-relaxed">
+                         Рекрутер уже получил ваш анализ. Если ваш Score выше 70%, вероятность приглашения на интервью очень высока!
+                      </p>
+                   </div>
+                </div>
+
+                {/* Основная панель: Вердикт */}
+                <div className="md:col-span-2 space-y-6">
+                   <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                      <h3 className="font-black text-slate-900 mb-6 flex items-center gap-2">
+                         <FileText size={20} className="text-blue-600"/> Подробный анализ
+                      </h3>
+                      
+                      {loading ? (
+                         <div className="py-20 text-center"><Loader2 className="animate-spin mx-auto text-blue-600"/></div>
+                      ) : aiData ? (
+                         <div className="space-y-6">
+                            <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 text-slate-700 leading-relaxed font-medium">
+                               {aiData.ai_verdict}
+                            </div>
+                            
+                            <div>
+                               <p className="text-xs font-black text-slate-400 uppercase mb-3">Найденные навыки</p>
+                               <div className="flex flex-wrap gap-2">
+                                  {aiData.skills_detected?.split(',').map((s, i) => (
+                                     <span key={i} className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-xs font-bold border border-blue-100">
+                                        {s.trim()}
+                                     </span>
+                                  ))}
+                               </div>
+                            </div>
+                         </div>
+                      ) : (
+                         <div className="py-10 text-center">
+                            <RefreshCw className="animate-spin mx-auto text-slate-300 mb-4" size={32}/>
+                            <p className="text-slate-400 font-bold">ИИ обрабатывает ваше резюме... Зайдите позже.</p>
+                         </div>
+                      )}
+                   </div>
+                </div>
+             </div>
+          </div>
+        )}
+
         {/* CANDIDATE PORTAL: MY APPS */}
         {user?.role === 'candidate' && view === 'my_apps' && (
           <div className="max-w-2xl mx-auto pt-10">
             <div className="flex justify-between items-center mb-10">
               <h2 className="text-3xl font-black">Мои отклики</h2>
-              <button
-                onClick={() => loadActiveVacancies()}
-                className="p-3 bg-white rounded-xl shadow-sm text-slate-400 hover:text-blue-600 transition"
-              >
+              <button onClick={() => loadActiveVacancies()} className="p-3 bg-white rounded-xl shadow-sm text-slate-400 hover:text-blue-600 transition">
                 <Plus size={24} />
               </button>
             </div>
             <div className="space-y-4">
-              {applications.length === 0 ? <p className="text-center text-slate-400 py-20 font-bold">Вы еще не подавали резюме</p> :
+              {applications.length === 0 ? (
+                <p className="text-center text-slate-400 py-20 font-bold">Вы еще не подавали резюме</p>
+              ) : (
                 applications.map(app => (
-                  <div key={app.id} className="bg-white p-6 rounded-3xl border border-slate-100 flex justify-between items-center shadow-sm">
+                  <div 
+                    key={app.id} 
+                    onClick={() => handleViewAppStatus(app)} // Добавили клик
+                    className="bg-white p-6 rounded-3xl border border-slate-100 flex justify-between items-center shadow-sm hover:shadow-md cursor-pointer transition group"
+                  >
                     <div>
-                      <p className="text-xs font-black text-slate-400 uppercase mb-1">ID ВАКАНСИИ: {app.vacancy_id.slice(0, 8)}</p>
-                      <p className="text-slate-500 text-sm flex items-center gap-1"><Clock size={12} /> {new Date(app.applied_at).toLocaleDateString()}</p>
+                      {/* Безопасный вывод ID через опциональную цепочку ?. */}
+                      <p className="text-xs font-black text-slate-400 uppercase mb-1">
+                        ВАКАНСИЯ: {app.vacancy_id?.slice(0, 8) || "ID"}
+                      </p>
+                      <div className="flex items-center gap-3">
+                         <p className="text-slate-500 text-sm flex items-center gap-1"><Clock size={12} /> {app.applied_at ? new Date(app.applied_at).toLocaleDateString() : 'Дата'}</p>
+                         {app.ai_score > 0 && <ScoreBadge score={app.ai_score} />}
+                      </div>
                     </div>
-                    <StatusBadge status={app.status} />
+                    <div className="flex items-center gap-3">
+                      <StatusBadge status={app.status} />
+                      <ChevronRight size={18} className="text-slate-300 group-hover:text-blue-600 transition" />
+                    </div>
                   </div>
                 ))
-              }
+              )}
             </div>
           </div>
         )}
