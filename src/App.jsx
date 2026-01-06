@@ -254,15 +254,13 @@ export default function App() {
   };
 
   const handleViewAppStatus = async (app) => {
-    // ВЫВОДИМ В КОНСОЛЬ, ЧТОБЫ УВИДЕТЬ СТРУКТУРУ
-    console.log("Данные заявки от бэкенда:", app);
+    console.log("Данные заявки:", app);
 
-    // Пытаемся найти ID в любом регистре
-    const appId = app.id || app.ID || app.Id;
+    // Добавляем проверку поля application_id, которое присылает ваш бэкенд
+    const appId = app.id || app.ID || app.application_id;
 
     if (!appId) {
-      console.error("ID не найден в объекте. Доступные поля:", Object.keys(app));
-      alert(`Ошибка: Бэкенд прислал объект без ID. Поля: ${Object.keys(app).join(", ")}`);
+      alert(`Ошибка: ID не найден. Поля: ${Object.keys(app).join(", ")}`);
       return;
     }
 
@@ -270,7 +268,7 @@ export default function App() {
     setAiData(null);
     setLoading(true);
     setView('candidate_app_detail');
-    
+
     try {
       const data = await apiRequest(`/applications/${appId}/ai-data`);
       setAiData(data);
@@ -766,18 +764,22 @@ export default function App() {
               ) : (
                 applications.map(app => (
                   <div
-                    key={app.id || app.ID || Math.random()} // Используем гибкий поиск ID
+                    key={app.application_id || app.id || Math.random()}
                     onClick={() => handleViewAppStatus(app)}
                     className="bg-white p-6 rounded-3xl border border-slate-100 flex justify-between items-center shadow-sm hover:shadow-md cursor-pointer transition group"
                   >
                     <div>
-                      {/* Безопасный вывод ID через опциональную цепочку ?. */}
+                      {/* Используем поле vacancy или vacancy_id */}
                       <p className="text-xs font-black text-slate-400 uppercase mb-1">
-                        ВАКАНСИЯ: {app.vacancy_id?.slice(0, 8) || "ID"}
+                        ВАКАНСИЯ: {app.vacancy || app.vacancy_id || "Без названия"}
                       </p>
                       <div className="flex items-center gap-3">
-                        <p className="text-slate-500 text-sm flex items-center gap-1"><Clock size={12} /> {app.applied_at ? new Date(app.applied_at).toLocaleDateString() : 'Дата'}</p>
-                        {app.ai_score > 0 && <ScoreBadge score={app.ai_score} />}
+                        {/* Используем поле date или applied_at */}
+                        <p className="text-slate-500 text-sm flex items-center gap-1">
+                          <Clock size={12} />
+                          {app.date ? new Date(app.date).toLocaleDateString() : (app.applied_at ? new Date(app.applied_at).toLocaleDateString() : '---')}
+                        </p>
+                        {(app.ai_score !== undefined) && <ScoreBadge score={app.ai_score} />}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
