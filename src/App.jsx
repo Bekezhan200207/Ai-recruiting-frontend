@@ -678,7 +678,7 @@ export default function App() {
                    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center">
                       <p className="text-sm font-black text-slate-400 uppercase mb-4">AI Score</p>
                       <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-blue-50 text-blue-600 text-3xl font-black mb-2">
-                         {selectedApp.ai_score || "..."}%
+                         {selectedApp.ai_score || "0"}%
                       </div>
                       <p className="text-xs text-slate-400">На основе требований вакансии</p>
                    </div>
@@ -686,7 +686,7 @@ export default function App() {
                    <div className="bg-indigo-600 p-6 rounded-3xl text-white shadow-lg shadow-indigo-100">
                       <h4 className="flex items-center gap-2 font-bold mb-3"><Sparkles size={18}/> Совет ИИ</h4>
                       <p className="text-indigo-100 text-sm leading-relaxed">
-                         Рекрутер уже получил ваш анализ. Если ваш Score выше 70%, вероятность приглашения на интервью очень высока!
+                         Ваше резюме было успешно проанализировано. Рекрутер видит этот же отчет и примет решение о приглашении на интервью.
                       </p>
                    </div>
                 </div>
@@ -699,28 +699,37 @@ export default function App() {
                       </h3>
                       
                       {loading ? (
-                         <div className="py-20 text-center"><Loader2 className="animate-spin mx-auto text-blue-600"/></div>
-                      ) : aiData ? (
+                         // Показываем только во время выполнения запроса
+                         <div className="py-20 text-center">
+                            <Loader2 className="animate-spin mx-auto text-blue-600 mb-4" size={32}/>
+                            <p className="text-slate-400 font-bold">Загружаем вердикт из базы...</p>
+                         </div>
+                      ) : aiData && aiData.ai_verdict ? (
+                         // Показываем данные, если они пришли
                          <div className="space-y-6">
                             <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 text-slate-700 leading-relaxed font-medium">
                                {aiData.ai_verdict}
                             </div>
                             
-                            <div>
-                               <p className="text-xs font-black text-slate-400 uppercase mb-3">Найденные навыки</p>
-                               <div className="flex flex-wrap gap-2">
-                                  {aiData.skills_detected?.split(',').map((s, i) => (
-                                     <span key={i} className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-xs font-bold border border-blue-100">
-                                        {s.trim()}
-                                     </span>
-                                  ))}
+                            {aiData.skills_detected && (
+                               <div>
+                                  <p className="text-xs font-black text-slate-400 uppercase mb-3">Найденные навыки</p>
+                                  <div className="flex flex-wrap gap-2">
+                                     {aiData.skills_detected.split(',').map((s, i) => (
+                                        <span key={i} className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-xs font-bold border border-blue-100">
+                                           {s.trim()}
+                                        </span>
+                                     ))}
+                                  </div>
                                </div>
-                            </div>
+                            )}
                          </div>
                       ) : (
-                         <div className="py-10 text-center">
-                            <RefreshCw className="animate-spin mx-auto text-slate-300 mb-4" size={32}/>
-                            <p className="text-slate-400 font-bold">ИИ обрабатывает ваше резюме... Зайдите позже.</p>
+                         // Показываем это, ТОЛЬКО если данных реально нет в базе
+                         <div className="py-20 text-center">
+                            <XCircle className="mx-auto text-slate-200 mb-4" size={48}/>
+                            <p className="text-slate-400 font-bold">Анализ еще не готов или произошла ошибка.</p>
+                            <p className="text-slate-300 text-sm mt-2">Попробуйте обновить страницу через минуту.</p>
                          </div>
                       )}
                    </div>
