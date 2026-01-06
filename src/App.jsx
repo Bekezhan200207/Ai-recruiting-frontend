@@ -3,99 +3,69 @@ import {
   Users, Briefcase, FileText, MessageCircle, ChevronRight, 
   Sparkles, Clock, Upload, ArrowLeft, Send, XCircle, 
   LogOut, Plus, Link as LinkIcon, AlertCircle, Loader2,
-  Trash2, Archive
+  Trash2, Archive, RefreshCw, CheckCircle2, LayoutDashboard
 } from 'lucide-react';
 
-// URL вашего готового Golang бэкенда
 const API_BASE = 'https://ai-recruiting.onrender.com';
 
 // --- UTILS ---
-
-// Универсальная функция для запросов к API
-const apiRequest = async (endpoint, method = 'GET', body = null, token = null, isFormData = false) => {
+const apiRequest = async (endpoint, method = 'GET', body = null, isFormData = false) => {
   const headers = {};
   if (!isFormData) {
     headers['Content-Type'] = 'application/json';
   }
   
-  const config = {
-    method,
-    headers,
-  };
+  const config = { method, headers };
 
   if (body) {
+    // Если это FormData (загрузка файла), браузер сам выставит нужные заголовки
     config.body = isFormData ? body : JSON.stringify(body);
   }
 
-  try {
-    const response = await fetch(`${API_BASE}${endpoint}`, config);
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `Ошибка API: ${response.status}`);
-    }
-    // Обработка ответов без тела (например 201 Created или 204 No Content)
-    const text = await response.text();
-    return text ? JSON.parse(text) : {};
-  } catch (error) {
-    console.error("API Error:", error);
-    throw error;
+  const response = await fetch(`${API_BASE}${endpoint}`, config);
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || errorData.message || `Ошибка: ${response.status}`);
   }
+
+  const text = await response.text();
+  return text ? JSON.parse(text) : {};
 };
 
 // --- UI COMPONENTS ---
-
 const StatusBadge = ({ status }) => {
   const styles = {
     'New': 'bg-blue-50 text-blue-700 border-blue-200',
     'Interview': 'bg-purple-50 text-purple-700 border-purple-200',
     'Offer': 'bg-green-50 text-green-700 border-green-200',
-    'Rejected': 'bg-slate-100 text-slate-500 border-slate-200',
+    'Rejected': 'bg-red-50 text-red-700 border-red-200',
     'Active': 'bg-green-50 text-green-700 border-green-200',
-    'Archived': 'bg-gray-100 text-gray-500 border-gray-200',
-    'AI Processing': 'bg-indigo-50 text-indigo-600 animate-pulse'
+    'Archived': 'bg-slate-100 text-slate-500 border-slate-200'
   };
-
-  const label = {
-    'New': 'Новый',
-    'Interview': 'Интервью',
-    'Offer': 'Оффер',
-    'Rejected': 'Отказ',
-    'Active': 'Активна',
-    'Archived': 'В архиве',
-    'AI Processing': 'Анализ...'
-  };
-
   return (
     <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${styles[status] || styles['New']}`}>
-      {label[status] || status}
+      {status}
     </span>
   );
 };
 
 const ScoreBadge = ({ score }) => {
   if (score === undefined || score === null) return null;
-  let colorClass = 'bg-red-100 text-red-700';
-  if (score >= 80) colorClass = 'bg-green-100 text-green-700';
-  else if (score >= 50) colorClass = 'bg-yellow-100 text-yellow-800';
-
+  const color = score >= 80 ? 'text-green-600 bg-green-50' : score >= 50 ? 'text-yellow-600 bg-yellow-50' : 'text-red-600 bg-red-50';
   return (
-    <div className={`flex items-center gap-1 px-2 py-1 rounded-full font-bold text-sm ${colorClass}`}>
-      <Sparkles size={14} />
-      <span>{score}</span>
+    <div className={`flex items-center gap-1 px-2 py-1 rounded-lg font-bold ${color}`}>
+      <Sparkles size={14} /> {score}%
     </div>
   );
 };
 
 export default function App() {
-  // --- STATE ---
-  const [user, setUser] = useState(null); // { id, role, token, email }
+  const [user, setUser] = useState(null); // { id, role, email }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
-  // Navigation
-  const [view, setView] = useState('auth'); // auth, dashboard, templates, job_detail, candidate_profile, candidate_landing, upload, my_apps
+  const [view, setView] = useState('auth'); // auth, dashboard, templates, job_detail, candidate_profile, search, upload, my_apps
   
-  // Data State
   const [vacancies, setVacancies] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
   const [applications, setApplications] = useState([]);
@@ -103,742 +73,476 @@ export default function App() {
   const [aiData, setAiData] = useState(null);
   const [templates, setTemplates] = useState([]);
   
-  // Forms & Modals State
-  const [authMode, setAuthMode] = useState('login'); // login, signup
-  const [authRole, setAuthRole] = useState('recruiter'); // recruiter, candidate
   const [formData, setFormData] = useState({});
-  const [showTemplateModal, setShowTemplateModal] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
-  const [isCreatingJob, setIsCreatingJob] = useState(false);
-  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+  const [authMode, setAuthMode] = useState('login'); 
+  const [authRole, setAuthRole] = useState('recruiter');
 
-  // --- AUTH HANDLERS ---
-
+  // --- AUTH ---
   const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
-      let endpoint = '';
-      let body = {};
-
-      if (authMode === 'login') {
-        endpoint = '/auth/login';
-        body = { email: formData.email, password: formData.password };
-      } else {
-        endpoint = authRole === 'recruiter' ? '/auth/recruiter/signup' : '/auth/candidate/signup';
-        body = { ...formData };
-      }
-
-      const res = await apiRequest(endpoint, 'POST', body);
+      let endpoint = authMode === 'login' ? '/auth/login' : (authRole === 'recruiter' ? '/auth/recruiter/signup' : '/auth/candidate/signup');
+      const res = await apiRequest(endpoint, 'POST', formData);
       
-      // Нормализация данных пользователя из разных ответов API
-      const userId = res.user_id || res.recruiter_id || res.candidate_id || res.id;
-      // Если API логина не возвращает роль, берем из выбранного таба (для простоты)
-      const userRole = res.role || authRole; 
-
       const userData = {
-        role: userRole,
-        token: res.token,
-        id: userId,
-        email: formData.email
+        id: res.recruiter_id || res.candidate_id || res.id,
+        email: formData.email,
+        role: authMode === 'login' ? (res.recruiter_id ? 'recruiter' : 'candidate') : authRole
       };
-
-      setUser(userData);
       
+      setUser(userData);
       if (userData.role === 'recruiter') {
-        setView('dashboard');
-        fetchVacancies(userId);
+        loadRecruiterDashboard(userData.id);
       } else {
-        setView('candidate_search');
+        setView('search');
       }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleLogout = () => {
-    setUser(null);
-    setVacancies([]);
-    setApplications([]);
-    setView('auth');
-    setFormData({});
+    } catch (err) { setError(err.message); } finally { setLoading(false); }
   };
 
   // --- RECRUITER ACTIONS ---
-
-  const fetchVacancies = async (userId) => {
+  const loadRecruiterDashboard = async (userId) => {
     setLoading(true);
+    setView('dashboard');
     try {
-      const res = await apiRequest('/vacancies');
-      // Фильтруем вакансии текущего рекрутера (если API возвращает все)
-      const myVacancies = res.filter(v => v.recruiter_id === (userId || user.id)); 
-      setVacancies(myVacancies);
-    } catch (err) {
-      console.error("Failed to fetch vacancies", err);
-    } finally {
-      setLoading(false);
-    }
+      const data = await apiRequest(`/vacancies/all?id=${userId || user.id}`);
+      setVacancies(data);
+    } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
-  const createVacancy = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await apiRequest('/vacancies', 'POST', {
-        title: formData.title,
-        ai_filters: formData.ai_filters,
-        recruiter_id: user.id,
-        is_archived: false
-      });
-      setIsCreatingJob(false);
-      fetchVacancies(user.id);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const archiveVacancy = async (vacancyId) => {
-    if (!confirm('Вы уверены? Кандидаты больше не смогут откликаться.')) return;
-    setLoading(true);
-    try {
-        await apiRequest(`/vacancies/${vacancyId}/archive`, 'PATCH');
-        if (selectedJob && selectedJob.id === vacancyId) {
-             setSelectedJob({...selectedJob, is_archived: true});
-        }
-        fetchVacancies(user.id);
-    } catch (err) {
-        alert("Ошибка архивации: " + err.message);
-    } finally {
-        setLoading(false);
-    }
-  };
-
-  const handleJobSelect = async (job) => {
+  const handleJobClick = async (job) => {
     setSelectedJob(job);
     setLoading(true);
     try {
       const apps = await apiRequest(`/vacancies/${job.id}/applications`);
       setApplications(apps);
       setView('job_detail');
-    } catch (err) {
-      setError("Не удалось загрузить кандидатов");
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError("Ошибка загрузки откликов"); } finally { setLoading(false); }
   };
 
-  // --- TEMPLATE ACTIONS (UC-5) ---
-
-  const fetchTemplates = async () => {
-    setLoading(true);
+  const toggleArchive = async (job) => {
+    const action = job.is_archived ? 'dearchive' : 'archive';
     try {
-        const tmpls = await apiRequest(`/templates?recruiter_id=${user.id}`);
-        setTemplates(tmpls);
-    } catch(err) {
-        console.error("Templates error", err);
-    } finally {
-        setLoading(false);
-    }
+      await apiRequest(`/vacancies/${job.id}/${action}`, 'PATCH');
+      loadRecruiterDashboard();
+    } catch (err) { alert(err.message); }
   };
 
-  const createTemplate = async (e) => {
+  const createVacancy = async (e) => {
     e.preventDefault();
-    setLoading(true);
     try {
-        await apiRequest('/templates', 'POST', {
-            title: formData.template_title,
-            body_text: formData.template_body,
-            recruiter_id: user.id
-        });
-        setIsCreatingTemplate(false);
-        fetchTemplates();
-    } catch (err) {
-        alert("Ошибка создания шаблона");
-    } finally {
-        setLoading(false);
-    }
+      await apiRequest('/vacancies', 'POST', { ...formData, recruiter_id: user.id, is_archived: false });
+      loadRecruiterDashboard();
+      setFormData({});
+    } catch (err) { alert(err.message); }
+  };
+
+  const handleCandidateClick = async (app) => {
+    setSelectedApp(app);
+    setLoading(true);
+    setView('candidate_profile');
+    try {
+      const data = await apiRequest(`/applications/${app.id}/ai-data`);
+      setAiData(data);
+      const tmpls = await apiRequest(`/templates?recruiter_id=${user.id}`);
+      setTemplates(tmpls);
+    } catch (err) { setAiData(null); } finally { setLoading(false); }
+  };
+
+  const updateAppStatus = async (newStatus) => {
+    try {
+      await apiRequest(`/applications/${selectedApp.id}/status`, 'PATCH', { status: newStatus });
+      setSelectedApp({...selectedApp, status: newStatus});
+    } catch (err) { alert(err.message); }
+  };
+
+  // --- TEMPLATES ---
+  const loadTemplates = async () => {
+    setLoading(true);
+    setView('templates');
+    try {
+      const data = await apiRequest(`/templates?recruiter_id=${user.id}`);
+      setTemplates(data);
+    } catch (err) { console.error(err); } finally { setLoading(false); }
+  };
+
+  const saveTemplate = async (e) => {
+    e.preventDefault();
+    try {
+      await apiRequest('/templates', 'POST', { ...formData, recruiter_id: user.id });
+      loadTemplates();
+    } catch (err) { alert(err.message); }
   };
 
   const deleteTemplate = async (id) => {
-      if(!confirm("Удалить шаблон?")) return;
-      try {
-          await apiRequest(`/templates/${id}`, 'DELETE');
-          fetchTemplates();
-      } catch (err) {
-          alert("Ошибка удаления");
-      }
+    if (!confirm("Удалить шаблон?")) return;
+    try {
+      await apiRequest(`/templates/${id}`, 'DELETE');
+      loadTemplates();
+    } catch (err) { alert(err.message); }
   };
 
-  // --- APPLICATION ACTIONS ---
-
-  const handleAppSelect = async (app) => {
-    setSelectedApp(app);
-    setLoading(true);
+  const generateTG = async (templateId) => {
     try {
-      // 1. Получаем данные AI
-      const data = await apiRequest(`/applications/${app.id}/ai-data`);
-      setAiData(data);
-      
-      // 2. Загружаем шаблоны для модалки связи
-      const tmpls = await apiRequest(`/templates?recruiter_id=${user.id}`);
-      setTemplates(tmpls);
-      
-      setView('candidate_profile');
-    } catch (err) {
-      console.error(err); 
-      setAiData(null); // Если данных AI еще нет
-      setView('candidate_profile');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const changeStatus = async (newStatus) => {
-    try {
-      await apiRequest(`/applications/${selectedApp.id}/status`, 'PATCH', { status: newStatus });
-      setSelectedApp(prev => ({ ...prev, status: newStatus }));
-      setApplications(prev => prev.map(a => a.id === selectedApp.id ? { ...a, status: newStatus } : a));
-    } catch (err) {
-      alert("Ошибка при обновлении статуса");
-    }
-  };
-
-  const sendTelegramMessage = async () => {
-    if (!selectedTemplate) return;
-    setLoading(true);
-    try {
-      const res = await apiRequest(`/templates/${selectedTemplate.id}/generate`, 'POST', {
+      const res = await apiRequest(`/templates/${templateId}/generate`, 'POST', {
         candidate_name: selectedApp.candidate_name,
-        telegram_username: aiData?.telegram_username || "username", 
+        telegram_username: aiData?.telegram_username || "username",
         vacancy_title: selectedJob.title
       });
-      
-      if (res.telegram_link) {
-         window.open(res.telegram_link, '_blank');
-      } else {
-         alert("Ссылка сгенерирована, но браузер заблокировал открытие окна. Проверьте консоль.");
-         console.log(res);
-      }
-      setShowTemplateModal(false);
-    } catch (err) {
-      alert("Ошибка генерации: " + err.message);
-    } finally {
-      setLoading(false);
-    }
+      window.open(res.telegram_link, '_blank');
+    } catch (err) { alert("Ошибка генерации ссылки"); }
   };
 
   // --- CANDIDATE ACTIONS ---
-
-  const searchVacancyByLink = async (e) => {
+  const findVacancy = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      // Поддержка и полных ссылок, и просто кодов
-      const shortLink = formData.search_link?.split('/').pop();
-      const vacancy = await apiRequest(`/vacancies/link/${shortLink}`);
-      setSelectedJob(vacancy);
+      const code = formData.search_code.split('/').pop();
+      const job = await apiRequest(`/vacancies/link/${code}`);
+      setSelectedJob(job);
       setView('upload');
-    } catch (err) {
-      setError("Вакансия не найдена или находится в архиве.");
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError("Вакансия не найдена"); } finally { setLoading(false); }
   };
 
   const uploadResume = async (file) => {
     setLoading(true);
-    // Используем FormData для отправки файла
-    const data = new FormData();
-    data.append('candidate_id', user.id);
-    data.append('vacancy_id', selectedJob.id);
-    data.append('resume', file);
-
+    const fd = new FormData();
+    fd.append('candidate_id', user.id);
+    fd.append('vacancy_id', selectedJob.id);
+    fd.append('resume', file);
     try {
-      await apiRequest('/applications', 'POST', data, null, true);
-      alert("Резюме успешно отправлено! ИИ приступил к анализу.");
+      await apiRequest('/applications', 'POST', fd, true);
+      alert("Резюме отправлено! ИИ начал анализ.");
       fetchMyApps();
-      setView('my_apps');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { alert(err.message); } finally { setLoading(false); }
   };
 
   const fetchMyApps = async () => {
     setLoading(true);
+    setView('my_apps');
     try {
-      const apps = await apiRequest(`/my-applications?candidate_id=${user.id}`);
-      setApplications(apps);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+      const data = await apiRequest(`/my-applications?candidate_id=${user.id}`);
+      setApplications(data);
+    } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
-  // --- VIEWS RENDER ---
+  // --- RENDERS ---
 
   if (view === 'auth') {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-        <div className="bg-white w-full max-w-md p-8 rounded-2xl shadow-xl">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 rounded-xl text-blue-600 mb-4">
-               <Sparkles />
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="bg-white w-full max-w-md p-8 rounded-3xl shadow-xl border border-slate-100">
+          <div className="flex justify-center mb-6">
+            <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
+              <Sparkles size={32} />
             </div>
-            <h1 className="text-2xl font-bold text-slate-900">AI Recruiting</h1>
-            <p className="text-slate-500">Система автоматизации найма</p>
           </div>
+          <h1 className="text-3xl font-black text-center text-slate-900 mb-2">Recruit AI</h1>
+          <p className="text-slate-500 text-center mb-8">Будущее найма уже здесь</p>
 
-          {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm flex items-center gap-2"><AlertCircle size={16}/> {error}</div>}
-
-          <div className="flex bg-slate-100 p-1 rounded-lg mb-6">
-            <button onClick={() => { setAuthRole('recruiter'); setFormData({}); }} className={`flex-1 py-2 text-sm font-medium rounded-md transition ${authRole === 'recruiter' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}>Рекрутер</button>
-            <button onClick={() => { setAuthRole('candidate'); setFormData({}); }} className={`flex-1 py-2 text-sm font-medium rounded-md transition ${authRole === 'candidate' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}>Соискатель</button>
+          <div className="flex bg-slate-100 p-1.5 rounded-xl mb-6">
+            <button onClick={() => setAuthRole('recruiter')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${authRole === 'recruiter' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Рекрутер</button>
+            <button onClick={() => setAuthRole('candidate')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${authRole === 'candidate' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Кандидат</button>
           </div>
 
           <form onSubmit={handleAuth} className="space-y-4">
-            {authRole === 'recruiter' && authMode === 'signup' && (
-              <input 
-                required 
-                placeholder="Название компании" 
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                onChange={e => setFormData({...formData, company_name: e.target.value})}
-              />
+            {authMode === 'signup' && authRole === 'recruiter' && (
+              <input required placeholder="Название компании" className="w-full px-4 py-3 bg-slate-50 border rounded-xl" onChange={e => setFormData({...formData, company_name: e.target.value})}/>
             )}
-            <input 
-              required 
-              type="email" 
-              placeholder="Email" 
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-              onChange={e => setFormData({...formData, email: e.target.value})}
-            />
-            {authRole === 'candidate' && authMode === 'signup' && (
-              <input 
-                required 
-                placeholder="Telegram (@username)" 
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                onChange={e => setFormData({...formData, telegram_username: e.target.value})}
-              />
+            <input required type="email" placeholder="Email" className="w-full px-4 py-3 bg-slate-50 border rounded-xl" onChange={e => setFormData({...formData, email: e.target.value})}/>
+            {authMode === 'signup' && authRole === 'candidate' && (
+              <input required placeholder="Telegram @username" className="w-full px-4 py-3 bg-slate-50 border rounded-xl" onChange={e => setFormData({...formData, telegram_username: e.target.value})}/>
             )}
-            <input 
-              required 
-              type="password" 
-              placeholder="Пароль" 
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-              onChange={e => setFormData({...formData, password: e.target.value})}
-            />
-            
-            <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-blue-200 transition flex justify-center items-center">
-              {loading ? <Loader2 className="animate-spin" /> : (authMode === 'login' ? 'Войти' : 'Создать аккаунт')}
+            <input required type="password" placeholder="Пароль" className="w-full px-4 py-3 bg-slate-50 border rounded-xl" onChange={e => setFormData({...formData, password: e.target.value})}/>
+            <button className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-100">
+              {loading ? <Loader2 className="animate-spin mx-auto"/> : (authMode === 'login' ? 'Войти' : 'Создать аккаунт')}
             </button>
           </form>
-
-          <div className="mt-6 text-center text-sm">
-            <span className="text-slate-500">{authMode === 'login' ? 'Нет аккаунта?' : 'Уже есть аккаунт?'}</span>
-            <button onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setError(null); }} className="ml-2 text-blue-600 font-medium hover:underline">
-              {authMode === 'login' ? 'Зарегистрироваться' : 'Войти'}
-            </button>
-          </div>
+          <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="w-full text-center mt-6 text-sm font-medium text-slate-500 hover:text-blue-600">
+            {authMode === 'login' ? 'У меня еще нет аккаунта' : 'У меня уже есть аккаунт'}
+          </button>
         </div>
       </div>
     );
   }
 
-  // --- RECRUITER LAYOUT ---
-
-  if (user?.role === 'recruiter') {
-    return (
-      <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900">
-        <aside className="w-64 bg-white border-r border-slate-200 hidden md:flex flex-col fixed h-full z-10">
-          <div className="p-6 border-b border-slate-100 flex items-center gap-2">
-            <Sparkles className="text-blue-600" size={24} />
-            <span className="font-bold text-lg">AI Recruiter</span>
-          </div>
-          <nav className="flex-1 p-4 space-y-2">
-            <button onClick={() => { fetchVacancies(user.id); setView('dashboard'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${view === 'dashboard' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}>
-              <Briefcase size={18} /> Вакансии
-            </button>
-            <button onClick={() => { fetchTemplates(); setView('templates'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${view === 'templates' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}>
-              <FileText size={18} /> Шаблоны
-            </button>
-          </nav>
-          <div className="p-4 border-t border-slate-100">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold uppercase">{user.email[0]}</div>
-              <div className="overflow-hidden">
-                <p className="text-sm font-medium truncate">{user.email}</p>
-                <p className="text-xs text-slate-500">Recruiter</p>
-              </div>
-            </div>
-            <button onClick={handleLogout} className="flex items-center gap-2 text-red-500 text-sm hover:text-red-700 w-full"><LogOut size={16}/> Выйти</button>
-          </div>
-        </aside>
-
-        <main className="flex-1 md:ml-64 p-8">
-          
-          {/* DASHBOARD VIEW */}
-          {view === 'dashboard' && (
-            <div className="max-w-5xl mx-auto">
-              <div className="flex justify-between items-center mb-8">
-                <h2 className="text-2xl font-bold">Вакансии</h2>
-                <button onClick={() => setIsCreatingJob(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm flex items-center gap-2">
-                  <Plus size={16} /> Создать
-                </button>
-              </div>
-
-              {isCreatingJob && (
-                <div className="bg-white p-6 rounded-xl border border-blue-100 shadow-lg mb-8 animate-in slide-in-from-top-4">
-                  <h3 className="font-bold mb-4">Новая вакансия</h3>
-                  <form onSubmit={createVacancy} className="space-y-4">
-                    <input required placeholder="Название (напр. Senior Backend)" className="w-full px-4 py-2 border rounded-lg" onChange={e => setFormData({...formData, title: e.target.value})}/>
-                    <textarea required placeholder="ИИ-фильтры: Опишите навыки, опыт и требования..." className="w-full px-4 py-2 border rounded-lg h-24" onChange={e => setFormData({...formData, ai_filters: e.target.value})}/>
-                    <div className="flex gap-2 justify-end">
-                      <button type="button" onClick={() => setIsCreatingJob(false)} className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg">Отмена</button>
-                      <button type="submit" disabled={loading} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Опубликовать</button>
-                    </div>
-                  </form>
-                </div>
-              )}
-
-              {loading && !isCreatingJob ? <div className="text-center py-10"><Loader2 className="animate-spin mx-auto text-blue-500"/></div> : (
-                <div className="grid gap-4">
-                  {vacancies.length === 0 ? <div className="text-center text-slate-400 py-10">Список вакансий пуст.</div> : 
-                    vacancies.map(job => (
-                      <div key={job.id} onClick={() => handleJobSelect(job)} className={`bg-white p-6 rounded-xl border shadow-sm hover:shadow-md transition cursor-pointer flex justify-between items-center group ${job.is_archived ? 'border-slate-100 opacity-70 bg-slate-50' : 'border-slate-200'}`}>
-                        <div>
-                          <div className="flex items-center gap-2">
-                             <h3 className="text-lg font-semibold group-hover:text-blue-600 transition">{job.title}</h3>
-                             {job.is_archived && <span className="bg-slate-200 text-slate-600 text-xs px-2 py-0.5 rounded">Архив</span>}
-                          </div>
-                          <div className="flex items-center gap-2 mt-1 text-sm text-slate-500">
-                             <LinkIcon size={12} />
-                             <span className="truncate max-w-xs">{job.short_link}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4 text-slate-400">
-                           <ChevronRight />
-                        </div>
-                      </div>
-                    ))
-                  }
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TEMPLATES VIEW (UC-5) */}
-          {view === 'templates' && (
-              <div className="max-w-4xl mx-auto">
-                  <div className="flex justify-between items-center mb-8">
-                    <h2 className="text-2xl font-bold">Шаблоны сообщений</h2>
-                    <button onClick={() => setIsCreatingTemplate(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
-                      <Plus size={16} /> Добавить
-                    </button>
-                  </div>
-
-                  {isCreatingTemplate && (
-                    <div className="bg-white p-6 rounded-xl border border-blue-100 shadow-lg mb-8">
-                      <form onSubmit={createTemplate} className="space-y-4">
-                        <input required placeholder="Название (напр. Приглашение)" className="w-full px-4 py-2 border rounded-lg" onChange={e => setFormData({...formData, template_title: e.target.value})}/>
-                        <textarea required placeholder="Текст сообщения (используйте {candidate_name} и {vacancy_title} как переменные)" className="w-full px-4 py-2 border rounded-lg h-32" onChange={e => setFormData({...formData, template_body: e.target.value})}/>
-                        <div className="flex gap-2 justify-end">
-                          <button type="button" onClick={() => setIsCreatingTemplate(false)} className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg">Отмена</button>
-                          <button type="submit" disabled={loading} className="px-4 py-2 bg-blue-600 text-white rounded-lg">Сохранить</button>
-                        </div>
-                      </form>
-                    </div>
-                  )}
-
-                  <div className="grid gap-4">
-                      {templates.map(t => (
-                          <div key={t.id} className="bg-white p-5 rounded-lg border border-slate-200 flex justify-between items-start">
-                              <div>
-                                  <h3 className="font-bold text-slate-800">{t.title}</h3>
-                                  <p className="text-sm text-slate-600 mt-1 whitespace-pre-wrap">{t.body_text}</p>
-                              </div>
-                              <button onClick={() => deleteTemplate(t.id)} className="text-slate-300 hover:text-red-500 p-2"><Trash2 size={18}/></button>
-                          </div>
-                      ))}
-                      {templates.length === 0 && !loading && <div className="text-center text-slate-400 py-10">Нет шаблонов. Создайте первый, чтобы ускорить работу.</div>}
-                  </div>
-              </div>
-          )}
-
-          {/* JOB DETAIL VIEW */}
-          {view === 'job_detail' && selectedJob && (
-            <div className="max-w-6xl mx-auto h-[calc(100vh-4rem)] flex flex-col">
-              <div className="flex items-center justify-between mb-6">
-                 <div className="flex items-center gap-4">
-                     <button onClick={() => { fetchVacancies(user.id); setView('dashboard'); }} className="p-2 hover:bg-slate-200 rounded-full transition"><ArrowLeft size={20}/></button>
-                     <div>
-                       <h2 className="text-xl font-bold">{selectedJob.title}</h2>
-                       <p className="text-sm text-slate-500">Код: {selectedJob.short_link}</p>
-                     </div>
-                 </div>
-                 {!selectedJob.is_archived && (
-                     <button onClick={() => archiveVacancy(selectedJob.id)} className="flex items-center gap-2 text-slate-500 hover:text-red-600 bg-white border border-slate-200 px-4 py-2 rounded-lg text-sm transition">
-                         <Archive size={16}/> В архив
-                     </button>
-                 )}
-              </div>
-
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex-1 overflow-hidden flex flex-col">
-                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                  <h3 className="font-semibold text-slate-700">Отклики ({applications.length})</h3>
-                </div>
-                <div className="overflow-auto flex-1">
-                   {loading ? <div className="p-10 text-center"><Loader2 className="animate-spin mx-auto"/></div> : (
-                     applications.length === 0 ? <div className="p-10 text-center text-slate-400">Пока нет откликов</div> : (
-                       <table className="w-full text-left border-collapse">
-                         <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0">
-                           <tr>
-                             <th className="px-6 py-3">Кандидат</th>
-                             <th className="px-6 py-3">Статус</th>
-                             <th className="px-6 py-3">AI Score</th>
-                             <th className="px-6 py-3">Дата</th>
-                             <th className="px-6 py-3"></th>
-                           </tr>
-                         </thead>
-                         <tbody className="divide-y divide-slate-100">
-                           {applications.map(app => (
-                             <tr key={app.id} onClick={() => handleAppSelect(app)} className="hover:bg-blue-50/50 cursor-pointer transition">
-                               <td className="px-6 py-4 font-medium text-slate-900">{app.candidate_name || 'Без имени'}</td>
-                               <td className="px-6 py-4"><StatusBadge status={app.status} /></td>
-                               <td className="px-6 py-4"><ScoreBadge score={app.ai_score} /></td>
-                               <td className="px-6 py-4 text-sm text-slate-500">{new Date(app.applied_at).toLocaleDateString()}</td>
-                               <td className="px-6 py-4 text-right"><ChevronRight size={16} className="text-slate-300 inline"/></td>
-                             </tr>
-                           ))}
-                         </tbody>
-                       </table>
-                     )
-                   )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* CANDIDATE PROFILE (UC-3, UC-4) */}
-          {view === 'candidate_profile' && selectedApp && (
-             <div className="max-w-6xl mx-auto h-full flex flex-col">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => setView('job_detail')} className="p-2 hover:bg-slate-200 rounded-full"><ArrowLeft size={20}/></button>
-                    <h2 className="text-xl font-bold">{selectedApp.candidate_name || 'Кандидат'}</h2>
-                    <ScoreBadge score={selectedApp.ai_score} />
-                  </div>
-                  <div className="flex gap-3">
-                     <select 
-                       value={selectedApp.status} 
-                       onChange={(e) => changeStatus(e.target.value)}
-                       className="bg-white border border-slate-300 text-sm rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
-                     >
-                       <option value="New">Новый</option>
-                       <option value="Interview">Интервью</option>
-                       <option value="Offer">Оффер</option>
-                       <option value="Rejected">Отказ</option>
-                     </select>
-                     <button onClick={() => setShowTemplateModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 flex items-center gap-2">
-                       <MessageCircle size={16}/> Написать в TG
-                     </button>
-                  </div>
-                </div>
-
-                <div className="flex flex-1 gap-6 overflow-hidden">
-                   {/* AI Analysis Card */}
-                   <div className="w-1/3 bg-white rounded-xl border border-indigo-100 shadow-sm p-6 overflow-auto">
-                      <h3 className="text-sm font-bold text-indigo-900 mb-4 flex items-center gap-2">
-                        <Sparkles size={16} className="text-indigo-500" /> Вердикт ИИ
-                      </h3>
-                      {loading ? <Loader2 className="animate-spin text-indigo-500"/> : (
-                        aiData ? (
-                          <div className="space-y-4">
-                            <div className="p-3 bg-indigo-50 rounded-lg text-sm text-indigo-900 leading-relaxed">
-                              {aiData.ai_verdict || "Нет описания вердикта."}
-                            </div>
-                            <div>
-                               <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Навыки</h4>
-                               <div className="flex flex-wrap gap-2">
-                                  {aiData.skills_detected?.split(',').map((s, i) => (
-                                    <span key={i} className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded border border-slate-200">{s.trim()}</span>
-                                  )) || <span className="text-xs text-slate-400">Не найдено</span>}
-                               </div>
-                            </div>
-                            <div>
-                               <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Контакты</h4>
-                               <p className="text-sm">Telegram: <span className="text-blue-600 font-medium">{aiData.telegram_username || "Не найден"}</span></p>
-                            </div>
-                          </div>
-                        ) : <div className="text-center text-slate-400 text-sm">Данные анализируются...</div>
-                      )}
-                   </div>
-
-                   {/* Resume Text */}
-                   <div className="flex-1 bg-slate-100 rounded-xl border border-slate-200 p-8 overflow-auto flex flex-col items-center">
-                      <FileText size={48} className="text-slate-300 mb-4"/>
-                      <h3 className="text-lg font-medium text-slate-600 mb-2">Распознанный текст резюме</h3>
-                      <div className="bg-white p-6 rounded-lg shadow-sm w-full max-w-2xl text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
-                         {aiData?.parsed_text || "Текст резюме загружается..."}
-                      </div>
-                   </div>
-                </div>
-             </div>
-          )}
-
-          {/* Template Selection Modal */}
-          {showTemplateModal && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-               <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6">
-                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-bold text-lg">Выбор шаблона</h3>
-                    <button onClick={() => setShowTemplateModal(false)}><XCircle className="text-slate-400 hover:text-red-500"/></button>
-                  </div>
-                  
-                  {templates.length === 0 ? (
-                    <div className="text-center py-6 text-slate-500 bg-slate-50 rounded-lg">
-                        <p className="mb-2">Нет шаблонов</p>
-                        <button onClick={() => {setShowTemplateModal(false); setView('templates');}} className="text-blue-600 font-medium hover:underline">Создать шаблон</button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2 mb-6 max-h-60 overflow-auto">
-                       {templates.map(t => (
-                         <div key={t.id} onClick={() => setSelectedTemplate(t)} className={`p-3 border rounded-lg cursor-pointer transition ${selectedTemplate?.id === t.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300'}`}>
-                            <div className="font-medium text-sm">{t.title}</div>
-                            <div className="text-xs text-slate-500 truncate">{t.body_text}</div>
-                         </div>
-                       ))}
-                    </div>
-                  )}
-
-                  <button 
-                    onClick={sendTelegramMessage} 
-                    disabled={!selectedTemplate || loading}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                     {loading ? <Loader2 className="animate-spin"/> : <><Send size={16}/> Открыть чат в Telegram</>}
-                  </button>
-               </div>
-            </div>
-          )}
-        </main>
+  const Sidebar = () => (
+    <aside className="w-72 bg-white border-r border-slate-200 flex flex-col fixed h-full shadow-sm">
+      <div className="p-8 flex items-center gap-3">
+        <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white"><Sparkles size={20}/></div>
+        <span className="font-black text-xl tracking-tight">RecruitAI</span>
       </div>
-    );
-  }
+      <nav className="flex-1 px-4 space-y-1">
+        <button onClick={() => loadRecruiterDashboard()} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${view === 'dashboard' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}>
+          <LayoutDashboard size={20}/> Вакансии
+        </button>
+        <button onClick={() => loadTemplates()} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${view === 'templates' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}>
+          <FileText size={20}/> Шаблоны
+        </button>
+      </nav>
+      <div className="p-6 border-t">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-600">{user?.email[0].toUpperCase()}</div>
+          <div className="overflow-hidden"><p className="text-sm font-bold truncate">{user?.email}</p><p className="text-xs text-slate-400">Рекрутер</p></div>
+        </div>
+        <button onClick={() => setView('auth')} className="w-full flex items-center gap-2 text-red-500 font-bold text-sm px-4 py-2 hover:bg-red-50 rounded-lg transition"><LogOut size={18}/> Выйти</button>
+      </div>
+    </aside>
+  );
 
-  // --- CANDIDATE LAYOUT ---
-
-  if (user?.role === 'candidate') {
-     return (
-       <div className="min-h-screen bg-white flex flex-col font-sans text-slate-900">
-          <header className="px-6 py-4 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10">
-             <div className="flex items-center gap-2 font-bold text-blue-600">
-               <Briefcase size={20}/> Portal
-             </div>
-             <div className="flex items-center gap-4">
-                <button onClick={() => { fetchMyApps(); setView('my_apps'); }} className={`text-sm font-medium transition ${view === 'my_apps' ? 'text-blue-600' : 'text-slate-500 hover:text-slate-800'}`}>Мои отклики</button>
-                <button onClick={() => setView('candidate_search')} className={`text-sm font-medium transition ${view === 'candidate_search' ? 'text-blue-600' : 'text-slate-500 hover:text-slate-800'}`}>Поиск</button>
-                <button onClick={handleLogout} className="text-slate-400 hover:text-red-500"><LogOut size={18}/></button>
-             </div>
-          </header>
-
-          <main className="flex-1 p-6 max-w-lg mx-auto w-full">
-             {view === 'candidate_search' && (
-               <div className="mt-10 text-center animate-in fade-in zoom-in duration-300">
-                  <h2 className="text-2xl font-bold mb-2">Поиск вакансии</h2>
-                  <p className="text-slate-500 mb-8">Введите код вакансии, который вы получили от рекрутера.</p>
-                  
-                  <form onSubmit={searchVacancyByLink} className="relative">
-                    <input 
-                      required
-                      placeholder="Код (например: xy7z9)" 
-                      className="w-full pl-4 pr-12 py-4 border-2 border-slate-200 rounded-xl text-lg focus:border-blue-500 outline-none transition"
-                      onChange={e => setFormData({...formData, search_link: e.target.value})}
-                    />
-                    <button type="submit" disabled={loading} className="absolute right-2 top-2 bottom-2 bg-blue-600 text-white px-4 rounded-lg hover:bg-blue-700 transition flex items-center">
-                      {loading ? <Loader2 className="animate-spin"/> : <ChevronRight />}
-                    </button>
-                  </form>
-                  {error && <p className="text-red-500 mt-4 text-sm bg-red-50 p-2 rounded">{error}</p>}
-               </div>
-             )}
-
-             {view === 'upload' && selectedJob && (
-               <div className="mt-6 animate-in slide-in-from-right duration-300">
-                  <button onClick={() => setView('candidate_search')} className="text-slate-400 hover:text-slate-600 mb-6 flex items-center gap-1 text-sm"><ArrowLeft size={16}/> Назад</button>
-                  
-                  <div className="bg-blue-50 p-6 rounded-2xl mb-8 border border-blue-100">
-                     <h1 className="text-2xl font-bold text-blue-900 mb-1">{selectedJob.title}</h1>
-                     <div className="flex items-center gap-2 text-blue-600 text-sm opacity-80 mb-4">
-                        <Briefcase size={14} /> ID: {selectedJob.id.slice(0,8)}
-                     </div>
-                     <p className="text-sm text-blue-800 leading-relaxed bg-white/50 p-3 rounded-lg shadow-sm">
-                       {selectedJob.ai_filters || "Требования к кандидату стандартные."}
-                     </p>
+  return (
+    <div className="min-h-screen bg-[#F8FAFC]">
+      {user?.role === 'recruiter' && <Sidebar />}
+      
+      <main className={`${user?.role === 'recruiter' ? 'pl-72' : ''} p-8`}>
+        {/* RECRUITER: DASHBOARD */}
+        {view === 'dashboard' && (
+          <div className="max-w-6xl mx-auto">
+            <div className="flex justify-between items-end mb-8">
+              <div>
+                <h2 className="text-3xl font-black text-slate-900">Мои вакансии</h2>
+                <p className="text-slate-500">Управляйте вашими активными и архивными позициями</p>
+              </div>
+              <button onClick={() => setView('create_job')} className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-100 hover:scale-105 transition">
+                <Plus size={20}/> Создать вакансию
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {vacancies.map(job => (
+                <div key={job.id} className={`bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl transition cursor-pointer group relative ${job.is_archived ? 'opacity-60' : ''}`}>
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-500 transition"><Briefcase size={24}/></div>
+                    <StatusBadge status={job.is_archived ? 'Archived' : 'Active'} />
                   </div>
+                  <h3 onClick={() => handleJobClick(job)} className="text-xl font-bold text-slate-900 mb-2 group-hover:text-blue-600 transition">{job.title}</h3>
+                  <p className="text-sm text-slate-400 mb-4 flex items-center gap-1"><LinkIcon size={14}/> {job.short_link}</p>
+                  <div className="flex gap-2 border-t pt-4">
+                    <button onClick={() => toggleArchive(job)} className="flex-1 py-2 text-xs font-bold rounded-lg border border-slate-100 hover:bg-slate-50">{job.is_archived ? 'Разархивировать' : 'В архив'}</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
-                  <div className="border-2 border-dashed border-slate-300 rounded-2xl p-8 flex flex-col items-center justify-center text-center hover:bg-slate-50 transition cursor-pointer relative group">
-                     <input 
-                       type="file" 
-                       accept="application/pdf"
-                       onChange={(e) => uploadResume(e.target.files[0])}
-                       className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                       disabled={loading}
-                     />
-                     {loading ? (
-                       <div className="py-4">
-                          <Loader2 className="animate-spin text-blue-600 mb-2 mx-auto" size={32}/>
-                          <p className="font-bold text-slate-700">ИИ анализирует резюме...</p>
-                          <p className="text-xs text-slate-400">Пожалуйста, подождите</p>
+        {/* RECRUITER: CREATE JOB */}
+        {view === 'create_job' && (
+          <div className="max-w-2xl mx-auto bg-white p-10 rounded-3xl shadow-sm">
+            <button onClick={() => setView('dashboard')} className="flex items-center gap-2 text-slate-400 mb-6 font-bold hover:text-slate-600"><ArrowLeft size={18}/> Назад</button>
+            <h2 className="text-3xl font-black mb-8">Новая вакансия</h2>
+            <form onSubmit={createVacancy} className="space-y-6">
+              <div>
+                <label className="block text-sm font-bold mb-2">Название позиции</label>
+                <input required placeholder="Напр. Senior Go Developer" className="w-full px-4 py-3 bg-slate-50 border rounded-xl" onChange={e => setFormData({...formData, title: e.target.value})}/>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-2">AI Фильтры (требования)</label>
+                <textarea required placeholder="Опишите навыки, которые должен найти ИИ..." className="w-full px-4 py-3 bg-slate-50 border rounded-xl h-40" onChange={e => setFormData({...formData, ai_filters: e.target.value})}/>
+              </div>
+              <button className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-blue-100">Опубликовать</button>
+            </form>
+          </div>
+        )}
+
+        {/* RECRUITER: JOB DETAIL (Applicants List) */}
+        {view === 'job_detail' && (
+          <div className="max-w-6xl mx-auto">
+             <button onClick={() => setView('dashboard')} className="flex items-center gap-2 text-slate-400 mb-6 font-bold hover:text-slate-600"><ArrowLeft size={18}/> Все вакансии</button>
+             <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 mb-8 flex justify-between items-center">
+               <div>
+                  <h2 className="text-3xl font-black">{selectedJob.title}</h2>
+                  <p className="text-slate-400">Всего откликов: {applications.length}</p>
+               </div>
+               <div className="bg-blue-50 px-4 py-2 rounded-xl text-blue-600 font-bold text-sm flex items-center gap-2"><LinkIcon size={16}/> {selectedJob.short_link}</div>
+             </div>
+
+             <div className="bg-white rounded-3xl shadow-sm overflow-hidden border border-slate-100">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase">Кандидат</th>
+                      <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase">Статус</th>
+                      <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase">AI Score</th>
+                      <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase">Дата</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {applications.map(app => (
+                      <tr key={app.id} onClick={() => handleCandidateClick(app)} className="hover:bg-slate-50 cursor-pointer transition">
+                        <td className="px-8 py-6 font-bold">{app.candidate_name || "Кандидат"}</td>
+                        <td className="px-8 py-6"><StatusBadge status={app.status}/></td>
+                        <td className="px-8 py-6"><ScoreBadge score={app.ai_score}/></td>
+                        <td className="px-8 py-6 text-slate-400 text-sm">{new Date(app.applied_at).toLocaleDateString()}</td>
+                        <td className="px-8 py-6 text-right"><ChevronRight className="inline text-slate-300"/></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+             </div>
+          </div>
+        )}
+
+        {/* RECRUITER: CANDIDATE PROFILE & AI DATA */}
+        {view === 'candidate_profile' && (
+          <div className="max-w-6xl mx-auto h-[calc(100vh-8rem)] flex flex-col">
+            <div className="flex items-center justify-between mb-8">
+               <div className="flex items-center gap-4">
+                  <button onClick={() => setView('job_detail')} className="p-2 hover:bg-white rounded-full"><ArrowLeft/></button>
+                  <h2 className="text-3xl font-black">{selectedApp.candidate_name}</h2>
+                  <ScoreBadge score={selectedApp.ai_score}/>
+               </div>
+               <div className="flex gap-3">
+                  <select value={selectedApp.status} onChange={(e) => updateAppStatus(e.target.value)} className="bg-white border rounded-xl px-4 font-bold text-sm outline-none">
+                    <option value="New">Новый</option>
+                    <option value="Interview">Интервью</option>
+                    <option value="Offer">Оффер</option>
+                    <option value="Rejected">Отказ</option>
+                  </select>
+               </div>
+            </div>
+
+            <div className="flex flex-1 gap-8 min-h-0">
+               <div className="w-1/3 bg-white rounded-3xl p-8 shadow-sm border border-slate-100 overflow-y-auto">
+                  <h3 className="flex items-center gap-2 font-black text-indigo-600 mb-6"><Sparkles size={20}/> Анализ ИИ</h3>
+                  {aiData ? (
+                    <div className="space-y-6">
+                      <div className="bg-indigo-50 p-6 rounded-2xl text-indigo-900 leading-relaxed text-sm font-medium border border-indigo-100">
+                        {aiData.ai_verdict}
+                      </div>
+                      <div>
+                        <p className="text-xs font-black text-slate-400 uppercase mb-3">Навыки из резюме</p>
+                        <div className="flex flex-wrap gap-2">
+                           {aiData.skills_detected?.split(',').map((s,i) => <span key={i} className="bg-slate-100 px-3 py-1 rounded-lg text-xs font-bold text-slate-600">{s.trim()}</span>)}
+                        </div>
+                      </div>
+                      <div className="pt-6 border-t">
+                        <p className="text-xs font-black text-slate-400 uppercase mb-4">Связаться через шаблоны</p>
+                        <div className="space-y-2">
+                           {templates.map(t => (
+                             <button key={t.id} onClick={() => generateTG(t.id)} className="w-full flex items-center justify-between p-4 bg-slate-50 hover:bg-blue-600 hover:text-white rounded-2xl transition group text-left">
+                               <span className="font-bold text-sm">{t.title}</span>
+                               <MessageCircle size={16} className="text-slate-300 group-hover:text-white"/>
+                             </button>
+                           ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : <div className="text-center py-20 text-slate-300 font-bold">Данные ИИ загружаются...</div>}
+               </div>
+               <div className="flex-1 bg-slate-200/50 rounded-3xl p-10 overflow-y-auto flex flex-col items-center">
+                  <FileText size={64} className="text-slate-300 mb-4"/>
+                  <p className="font-black text-slate-400 mb-8">ТЕКСТ РЕЗЮМЕ</p>
+                  <div className="bg-white p-12 rounded-2xl shadow-sm w-full max-w-2xl text-slate-700 leading-relaxed whitespace-pre-wrap font-serif">
+                    {aiData?.parsed_text || "Распознавание текста..."}
+                  </div>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {/* RECRUITER: TEMPLATES */}
+        {view === 'templates' && (
+          <div className="max-w-4xl mx-auto">
+            <div className="flex justify-between items-end mb-10">
+              <div>
+                <h2 className="text-3xl font-black">Шаблоны сообщений</h2>
+                <p className="text-slate-500">Автоматизируйте общение с кандидатами в Telegram</p>
+              </div>
+              <button onClick={() => setView('create_template')} className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2"><Plus size={20}/> Добавить</button>
+            </div>
+            <div className="space-y-4">
+              {templates.map(t => (
+                <div key={t.id} className="bg-white p-6 rounded-3xl border border-slate-100 flex justify-between items-center group shadow-sm hover:shadow-md transition">
+                  <div>
+                    <h3 className="font-black text-slate-900">{t.title}</h3>
+                    <p className="text-slate-500 text-sm mt-1">{t.body_text.slice(0, 100)}...</p>
+                  </div>
+                  <button onClick={() => deleteTemplate(t.id)} className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition"><Trash2 size={20}/></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* RECRUITER: CREATE TEMPLATE */}
+        {view === 'create_template' && (
+          <div className="max-w-2xl mx-auto bg-white p-10 rounded-3xl shadow-sm">
+            <button onClick={() => setView('templates')} className="flex items-center gap-2 text-slate-400 mb-6 font-bold hover:text-slate-600"><ArrowLeft size={18}/> Назад</button>
+            <h2 className="text-3xl font-black mb-8">Создать шаблон</h2>
+            <form onSubmit={saveTemplate} className="space-y-6">
+              <div>
+                <label className="block text-sm font-bold mb-2">Название шаблона</label>
+                <input required placeholder="Напр. Приглашение на созвон" className="w-full px-4 py-3 bg-slate-50 border rounded-xl" onChange={e => setFormData({...formData, title: e.target.value})}/>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-2">Текст сообщения</label>
+                <textarea required placeholder="Используйте плейсхолдеры {name} и {job}..." className="w-full px-4 py-3 bg-slate-50 border rounded-xl h-40" onChange={e => setFormData({...formData, body_text: e.target.value})}/>
+              </div>
+              <button className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold">Сохранить</button>
+            </form>
+          </div>
+        )}
+
+        {/* CANDIDATE PORTAL: SEARCH */}
+        {user?.role === 'candidate' && view === 'search' && (
+           <div className="max-w-md mx-auto pt-20 text-center">
+              <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-inner"><LayoutDashboard size={40}/></div>
+              <h2 className="text-3xl font-black mb-4">Найти вакансию</h2>
+              <p className="text-slate-500 mb-10">Введите секретный код вакансии, чтобы подать резюме</p>
+              <form onSubmit={findVacancy} className="relative">
+                <input required placeholder="Код: xy7z9" className="w-full px-6 py-5 rounded-2xl border-2 border-slate-100 focus:border-blue-600 outline-none text-xl font-bold transition shadow-sm" onChange={e => setFormData({...formData, search_code: e.target.value})}/>
+                <button className="absolute right-2 top-2 bottom-2 bg-blue-600 text-white px-6 rounded-xl hover:bg-blue-700 transition"><ChevronRight/></button>
+              </form>
+              <button onClick={() => fetchMyApps()} className="mt-12 text-blue-600 font-bold hover:underline flex items-center gap-2 justify-center mx-auto"><Clock size={18}/> Мои предыдущие отклики</button>
+           </div>
+        )}
+
+        {/* CANDIDATE PORTAL: UPLOAD */}
+        {user?.role === 'candidate' && view === 'upload' && (
+          <div className="max-w-lg mx-auto pt-10">
+             <button onClick={() => setView('search')} className="flex items-center gap-2 text-slate-400 mb-8 font-bold hover:text-slate-600"><ArrowLeft size={18}/> К поиску</button>
+             <div className="bg-white p-8 rounded-3xl shadow-xl border border-blue-50 mb-8">
+                <div className="flex items-center gap-2 text-blue-600 font-bold text-xs uppercase tracking-widest mb-2"><CheckCircle2 size={14}/> Вакансия найдена</div>
+                <h1 className="text-3xl font-black mb-4">{selectedJob.title}</h1>
+                <div className="p-4 bg-slate-50 rounded-2xl text-slate-600 text-sm leading-relaxed mb-8">{selectedJob.ai_filters}</div>
+                
+                <div className="relative group border-4 border-dashed border-slate-100 rounded-3xl p-12 text-center hover:border-blue-200 transition">
+                   <input type="file" accept=".pdf" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => uploadResume(e.target.files[0])}/>
+                   <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition"><Upload size={24}/></div>
+                   <p className="font-black text-slate-900 mb-1">Загрузить PDF</p>
+                   <p className="text-slate-400 text-sm">Нажмите или перетащите файл</p>
+                </div>
+             </div>
+          </div>
+        )}
+
+        {/* CANDIDATE PORTAL: MY APPS */}
+        {user?.role === 'candidate' && view === 'my_apps' && (
+           <div className="max-w-2xl mx-auto pt-10">
+              <div className="flex justify-between items-center mb-10">
+                <h2 className="text-3xl font-black">Мои отклики</h2>
+                <button onClick={() => setView('search')} className="p-3 bg-white rounded-xl shadow-sm text-slate-400 hover:text-blue-600 transition"><Plus size={24}/></button>
+              </div>
+              <div className="space-y-4">
+                {applications.length === 0 ? <p className="text-center text-slate-400 py-20 font-bold">Вы еще не подавали резюме</p> : 
+                  applications.map(app => (
+                    <div key={app.id} className="bg-white p-6 rounded-3xl border border-slate-100 flex justify-between items-center shadow-sm">
+                       <div>
+                         <p className="text-xs font-black text-slate-400 uppercase mb-1">ID ВАКАНСИИ: {app.vacancy_id.slice(0,8)}</p>
+                         <p className="text-slate-500 text-sm flex items-center gap-1"><Clock size={12}/> {new Date(app.applied_at).toLocaleDateString()}</p>
                        </div>
-                     ) : (
-                       <>
-                         <div className="w-16 h-16 bg-blue-100 group-hover:bg-blue-200 transition rounded-full flex items-center justify-center text-blue-600 mb-4">
-                           <Upload size={28} />
-                         </div>
-                         <h3 className="font-bold text-slate-900">Загрузите PDF резюме</h3>
-                         <p className="text-sm text-slate-500 mt-1">Перетащите или кликните</p>
-                       </>
-                     )}
-                  </div>
-               </div>
-             )}
-
-             {view === 'my_apps' && (
-               <div className="mt-6">
-                 <h2 className="text-xl font-bold mb-6">Мои отклики</h2>
-                 {loading && applications.length === 0 ? <Loader2 className="animate-spin mx-auto"/> : (
-                   <div className="space-y-4">
-                     {applications.length === 0 ? <div className="text-center text-slate-400 py-10 bg-slate-50 rounded-xl">История откликов пуста</div> : 
-                       applications.map(app => (
-                         <div key={app.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center hover:shadow-md transition">
-                            <div>
-                               <div className="font-bold text-slate-900 flex items-center gap-2">
-                                  <Briefcase size={14} className="text-slate-400"/>
-                                  Вакансия: {app.vacancy_id.slice(0,8)}...
-                               </div>
-                               <div className="text-xs text-slate-400 mt-1 flex items-center gap-1">
-                                 <Clock size={10} /> {new Date(app.applied_at).toLocaleDateString()}
-                               </div>
-                            </div>
-                            <StatusBadge status={app.status} />
-                         </div>
-                       ))
-                     }
-                   </div>
-                 )}
-               </div>
-             )}
-          </main>
-       </div>
-     );
-  }
-
-  return <div className="flex items-center justify-center h-screen bg-slate-100"><Loader2 className="animate-spin text-slate-400"/></div>;
+                       <StatusBadge status={app.status}/>
+                    </div>
+                  ))
+                }
+              </div>
+           </div>
+        )}
+      </main>
+    </div>
+  );
 }
