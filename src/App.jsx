@@ -59,10 +59,10 @@ const ScoreBadge = ({ score }) => {
 };
 
 export default function App() {
-  const [user, setUser] = useState(null); 
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [view, setView] = useState('auth'); 
+  const [view, setView] = useState('auth');
 
   const [vacancies, setVacancies] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
@@ -82,7 +82,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      let endpoint = authMode === 'login' 
+      let endpoint = authMode === 'login'
         ? (authRole === 'recruiter' ? '/auth/recruiter/login' : '/auth/candidate/login')
         : (authRole === 'recruiter' ? '/auth/recruiter/signup' : '/auth/candidate/signup');
 
@@ -113,12 +113,16 @@ export default function App() {
   const loadRecruiterDashboard = async (userId) => {
     const targetId = userId || user?.id;
     if (!targetId) return;
+
     setLoading(true);
     setView('dashboard');
     try {
+      // Отправляем ID как query параметр ?id=...
       const data = await apiRequest(`/vacancies/all?id=${targetId}`);
+      console.log("Данные из бэкенда:", data);
       setVacancies(Array.isArray(data) ? data : []);
     } catch (err) {
+      console.error("Ошибка загрузки:", err);
       setVacancies([]);
     } finally {
       setLoading(false);
@@ -448,11 +452,11 @@ export default function App() {
           <div className="max-w-2xl mx-auto bg-white p-10 rounded-3xl shadow-sm">
             <button onClick={() => setView('templates')} className="flex items-center gap-2 text-slate-400 mb-6 font-bold hover:text-slate-600"><ArrowLeft size={18} /> Назад</button>
             <h2 className="text-3xl font-black mb-8">{formData.id ? 'Изменить шаблон' : 'Создать шаблон'}</h2>
-            
+
             <div className="bg-amber-50 p-4 rounded-2xl mb-6 border border-amber-100 flex gap-3">
               <AlertCircle className="text-amber-600 shrink-0" size={20} />
               <div className="text-sm text-amber-800">
-                <strong>Инструкция:</strong> Используйте <code>{ "{ИМЯ}" }</code> и <code>{ "{ВАКАНСИЯ}" }</code> для автоподстановки.
+                <strong>Инструкция:</strong> Используйте <code>{"{ИМЯ}"}</code> и <code>{"{ВАКАНСИЯ}"}</code> для автоподстановки.
               </div>
             </div>
 
@@ -587,9 +591,13 @@ export default function App() {
         {view === 'candidate_profile' && selectedApp && (
           <div className="max-w-6xl mx-auto">
             <div className="flex justify-between items-center mb-8">
-              <h2 className="text-3xl font-black">{selectedApp.candidate_name}</h2>
+              <div className="flex items-center gap-4">
+                <button onClick={() => setView('job_detail')} className="p-2 hover:bg-white rounded-full transition"><ArrowLeft /></button>
+                <h2 className="text-3xl font-black">{selectedApp.candidate_name}</h2>
+                <ScoreBadge score={selectedApp.ai_score} />
+              </div>
               <div className="flex gap-4">
-                <select value={selectedApp.status} onChange={(e) => updateAppStatus(e.target.value)} className="border rounded-xl px-4 py-2">
+                <select value={selectedApp.status} onChange={(e) => updateAppStatus(e.target.value)} className="border rounded-xl px-4 py-2 font-bold text-sm outline-none shadow-sm">
                   <option value="New">Новый</option>
                   <option value="Interview">Интервью</option>
                   <option value="Offer">Оффер</option>
@@ -597,27 +605,62 @@ export default function App() {
                 </select>
               </div>
             </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              <div className="bg-white p-8 rounded-3xl shadow-sm h-fit">
-                <h3 className="font-black text-blue-600 mb-6 flex items-center gap-2"><Sparkles size={20} /> AI Анализ</h3>
+              {/* ЛЕВАЯ ПАНЕЛЬ (SIDEBAR) */}
+              <div className="bg-white p-8 rounded-3xl shadow-sm h-fit border border-slate-100">
+                <h3 className="font-black text-blue-600 mb-6 flex items-center gap-2">
+                  <Sparkles size={20} /> AI Анализ
+                </h3>
+
+                {/* Данные ИИ */}
                 {aiData ? (
                   <div className="space-y-6">
-                    <p className="bg-blue-50 p-4 rounded-xl text-sm">{aiData.ai_verdict}</p>
+                    <p className="bg-blue-50 p-4 rounded-xl text-sm leading-relaxed text-slate-700">{aiData.ai_verdict}</p>
                     <div className="flex flex-wrap gap-2">
-                      {aiData.skills_detected?.split(',').map((s, i) => <span key={i} className="bg-slate-100 px-3 py-1 rounded-lg text-xs font-bold">{s.trim()}</span>)}
-                    </div>
-                    <div className="space-y-2 pt-4 border-t">
-                      <p className="text-xs font-black text-slate-400 uppercase">Шаблоны</p>
-                      {templates.map(t => (
-                        <button key={t.id || t.ID} onClick={() => generateTG(t.id || t.ID)} className="w-full text-left p-3 hover:bg-slate-50 rounded-xl border text-sm font-bold">{t.title || t.Title}</button>
+                      {aiData.skills_detected?.split(',').map((s, i) => (
+                        <span key={i} className="bg-slate-100 px-3 py-1 rounded-lg text-xs font-bold text-slate-600">{s.trim()}</span>
                       ))}
                     </div>
                   </div>
-                ) : <Loader2 className="animate-spin" />}
+                ) : (
+                  <div className="flex items-center gap-2 text-slate-400 py-4">
+                    <Loader2 className="animate-spin" size={16} />
+                    <span className="text-sm font-medium">Загрузка вердикта...</span>
+                  </div>
+                )}
+
+                {/* === ВСТАВЛЯЙТЕ СЮДА (ПОД БЛОК AIDATA) === */}
+                <div className="space-y-4 pt-6 border-t mt-6">
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-wider">Связаться через шаблон:</p>
+                  {templates.length === 0 ? (
+                    <div className="text-center py-4 bg-slate-50 rounded-xl border border-dashed">
+                      <p className="text-xs text-slate-400">Шаблоны не созданы</p>
+                      <button onClick={() => setView('templates')} className="text-[10px] text-blue-600 font-bold hover:underline">Создать сейчас</button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2">
+                      {templates.map(t => (
+                        <button
+                          key={t.id || t.ID}
+                          onClick={() => generateTG(t.id || t.ID)}
+                          className="w-full text-left p-3 hover:bg-blue-50 hover:text-blue-600 rounded-xl border border-slate-100 text-sm font-bold transition flex justify-between items-center group"
+                        >
+                          <span className="truncate">{t.title || t.Title}</span>
+                          <Send size={14} className="text-blue-400 opacity-0 group-hover:opacity-100 transition shrink-0 ml-2" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {/* === КОНЕЦ ВСТАВКИ === */}
+
               </div>
-              <div className="md:col-span-2 bg-slate-100 rounded-3xl p-10 h-[600px] overflow-auto">
-                <div className="bg-white p-12 rounded-xl shadow-sm whitespace-pre-wrap font-serif leading-relaxed">
-                  {aiData?.parsed_text || "Текст извлекается..."}
+
+              {/* ПРАВАЯ ПАНЕЛЬ (ТЕКСТ РЕЗЮМЕ) */}
+              <div className="md:col-span-2 bg-slate-100 rounded-3xl p-10 h-[700px] overflow-auto border border-slate-200">
+                <div className="bg-white p-12 rounded-xl shadow-sm whitespace-pre-wrap font-serif leading-relaxed text-slate-800">
+                  {aiData?.parsed_text || "Текст извлекается или недоступен..."}
                 </div>
               </div>
             </div>
